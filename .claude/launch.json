@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "preview",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "-q", "-p", "preview", "--", "127.0.0.1:8788", "display-state"],
+      "port": 8788
+    }
+  ]
+}

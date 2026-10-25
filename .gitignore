@@ -1,0 +1,10 @@
+/target
+/display-state/
+/secrets/
+__pycache__/
+# your location and local state stay local; config.example.json is the template
+/config.json
+/data/disk-history.json
+/feeds/.logs/
+# licensed face: supply your own (see README)
+/crates/ui/fonts/mono.woff2

@@ -1,0 +1,108 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>display (live)</title>
+<style>
+  html, body { margin: 0; }
+  body { background: #c8c8c8; display: flex; justify-content: center; padding: 20px 0 56px; font: 14px system-ui, sans-serif; }
+  #stage { position: relative; }
+  #scaler { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #screen { box-shadow: 0 0 0 10px #222; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px; background: #b4b4b4; z-index: 20;
+         display: flex; gap: 18px; justify-content: center; font-weight: 600; }
+  #bar .bad { background: #c00; color: #fff; padding: 0 8px; border-radius: 4px; }
+</style>
+<div id="stage"><div id="scaler"><main id="screen"></main></div></div>
+<div id="bar"><span id="st">connecting…</span></div>
+<script src="/ui.js"></script>
+<script>
+  // Nothing is built here. The scene exists only because the store replays its journal into
+  // this page, and every later change arrives through /poll, one verified eval at a time.
+  const sp = new URLSearchParams(location.search);
+  if (sp.has("eink")) ui.eink({ algo: sp.get("eink") || "atkinson" });
+
+  const stage = document.getElementById("stage"), scaler = document.getElementById("scaler");
+  function fit() {
+    const W = ui.screen.offsetWidth, H = ui.screen.offsetHeight;
+    const s = Math.min((innerWidth - 60) / W, (innerHeight - 100) / H);
+    scaler.style.transform = `scale(${s})`;
+    stage.style.width = W * s + "px";
+    stage.style.height = H * s + "px";
+  }
+  new ResizeObserver(fit).observe(ui.screen);
+  addEventListener("resize", fit);
+  fit();
+
+  // run JS as a classic script (like CDP Runtime.evaluate) so top-level const/let persist
+  function run(js) {
+    let err = null;
+    const onerr = (ev) => { err = ev.error || new Error(ev.message); ev.preventDefault(); };
+    addEventListener("error", onerr);
+    const s = document.createElement("script");
+    s.textContent = js;
+    document.head.append(s);
+    s.remove();
+    removeEventListener("error", onerr);
+    if (err) throw err;
+  }
+
+  const post = (path, v) => fetch(path, { method: "POST", body: v === undefined ? "" : JSON.stringify(v) });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Read-only: runs in a throwaway function scope (const/let stay local), and any DOM or
+  // interval change it makes is rolled back. Never journaled.
+  function query(js) {
+    let f;
+    try { f = new Function(`return (${js.trim().replace(/;+\s*$/, "")}\n)`); } catch { f = new Function(js); }
+    ui.begin();
+    try {
+      const v = f();
+      return JSON.stringify(v === undefined ? null : v, (_, x) => (x instanceof Node ? x.outerHTML : x));
+    } finally {
+      ui.rollback();
+    }
+  }
+
+  let superseded = false;
+  async function worker() {
+    await ui.ready();   // layout depends on the fonts: never measure before they are loaded
+    const { sid } = await (await post("/hello")).json();   // this page is now the only session
+    for (;;) {
+      let cmd;
+      try { cmd = await (await fetch("/poll?sid=" + sid)).json(); } catch { await sleep(1000); continue; }
+      if (cmd.stale) { superseded = true; document.getElementById("st").textContent = "superseded by a newer page (reload to take over)"; return; }
+      if (!cmd.id) continue;
+      if (cmd.kind === "reload") { location.reload(); return; }
+      let res;
+      if (cmd.kind === "query") {
+        try { res = { ok: true, value: query(cmd.js) }; }
+        catch (e) { res = { ok: false, error: `${e.name}: ${e.message}` }; }
+      } else {
+        ui.begin();
+        try {
+          run(cmd.js);
+          const f = ui.verify();
+          res = { ok: true, snapshot: ui.snapshot(), free_y: f.freeY, fit: f };
+        } catch (e) {
+          ui.rollback();   // an eval that throws must not leave half its changes on the screen
+          res = { ok: false, error: `${e.name}: ${e.message}` };
+        }
+      }
+      await post("/result", { id: cmd.id, ...res });
+    }
+  }
+  worker();
+
+  // status line
+  const st = document.getElementById("st");
+  async function refresh() {
+    if (superseded) return;
+    try {
+      const s = await (await fetch("/status")).json();
+      const r = s.replay;
+      st.innerHTML = `head ${s.head} · journal ${s.tail}` +
+        (r ? ` · replayed ${r.replayed}` + (r.broken.length ? ` <span class="bad">${r.broken.length} broken</span>` : "") : "");
+    } catch { st.textContent = "server unreachable"; }
+  }
+  refresh();
+  setInterval(refresh, 1500);
+</script>

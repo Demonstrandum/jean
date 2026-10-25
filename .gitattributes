@@ -1,0 +1,4 @@
+# if you keep a licensed mono face in a private fork, store it with Git LFS
+crates/ui/fonts/mono.woff2 filter=lfs diff=lfs merge=lfs -text
+crates/ui/fonts/*.woff2 filter=lfs diff=lfs merge=lfs -text
+crates/ui/fonts/*.age filter=lfs diff=lfs merge=lfs -text

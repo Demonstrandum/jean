@@ -1,0 +1,304 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ui preview</title>
+<style>
+  html, body { margin: 0; }
+  body { background: #c8c8c8; display: flex; justify-content: center; padding: 20px 0 56px; font: 13px system-ui, sans-serif; }
+  #stage { position: relative; }
+  #scaler { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #screen { box-shadow: 0 0 0 10px #222; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px; display: flex; gap: 14px; justify-content: center;
+        background: #b4b4b4; z-index: 20; }
+  nav a { color: #111; text-decoration: none; padding: 2px 8px; }
+  nav a.on { background: #111; color: #fff; }
+  #fit { white-space: nowrap; margin-left: 18px; padding: 2px 8px; font-weight: 700; }
+  #fit.bad { background: #c00; color: #fff; }
+</style>
+<div id="stage"><div id="scaler"><main id="screen"></main></div></div>
+<nav id="scenenav"></nav>
+<script src="/ui.js"></script>
+<script>
+  const sp = new URLSearchParams(location.search);
+
+  // ---- fit the pretend screen into the window ------------------------------
+  const stage = document.getElementById("stage"), scaler = document.getElementById("scaler");
+  function fit() {
+    const W = ui.screen.offsetWidth, H = ui.screen.offsetHeight;
+    const availW = innerWidth - 60, availH = innerHeight - 100;
+    const tall = H > 1000; // long component sheets: fit width only, scroll
+    const s = tall ? Math.min(availW / W, 1) : Math.min(availW / W, availH / H);
+    scaler.style.transform = `scale(${s})`;
+    stage.style.width = W * s + "px";
+    stage.style.height = H * s + "px";
+  }
+  new ResizeObserver(fit).observe(ui.screen);
+  addEventListener("resize", fit);
+
+  // ---- the design language --------------------------------------------------------
+  // Landscape-style modules on a 6x3 sheet: hard corners, 1px lines, small centred icons, the day clock,
+  // grainy wavy gradients. State is carried by tiny sigils (corner clusters and inline), not by words:
+  //   top-left = the machine (state, link, data age, peers), top-right = the world (wind, cloud cover, pressure, mode).
+  // top-left = the machine (link, wifi, cpu, disk), top-right = the world (wind, cloud cover, moon, events left); re-read at every redraw.
+  const SIG = {
+    tl: () => [["state", ui.get("link.server") === "up" ? "ok" : "err"], ["bars", ui.get("wifi.bars") ?? 0], ["level", [ui.get("cpu.total") ?? 0, 100]], ["level", [ui.get("disk.pct") ?? 0, 100]]],
+    tr: () => [["dir", ui.get("wx.wind_dir") ?? 0], ["level", [ui.get("wx.cloud") ?? 0, 8]], ["glyph", "moon"], ["count", ui.get("cal.left") ?? 0]],
+  };
+  const sheet = (...modules) => ui.show(fill(tilegrid(...modules)));
+  const price = [1.1, 0.9, 0.5, 0.42, 0.41, 0.55, 0.9, 1.4, 1.8, 1.6, 1.3, 1.2, 1.1, 1.0, 1.1, 1.3, 1.7, 2.05, 1.9, 1.6, 1.4, 1.2, 1.1, 1.0];
+  const wave = (n, base, amp, seed) => Array.from({ length: n }, (_, i) => Math.max(0.03, Math.min(1, base + amp * Math.sin(i / 2.1 + seed) + 0.22 * Math.abs(Math.sin(i * 1.7 + seed)) * (i % 6 === 0 ? 1.6 : 0.4))));
+  const disk = Array.from({ length: 30 }, (_, i) => +(1.18 + i * 0.0085 + (i > 20 ? (i - 20) * 0.004 : 0)).toFixed(3));
+
+  // ---- real data: every module below is bound to a feed (feeds/*.py), so it shows the machine, the weather, the tariff, the lists.
+  // A binding draws "–" until its first value, then redraws only on its tier's next beat after the value changes.
+  const MIN = { tier: 60000 };                       // minute-aligned: clocks, "next in", past/future
+  const num = (v, d = 0) => (v == null || isNaN(v) ? "–" : Number(v).toFixed(d));
+  const dur = (m) => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`);
+  const upfmt = (s) => (s == null ? "–" : s >= 86400 ? `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`);
+  const last = (a, n) => { const t = (a ?? []).slice(-n); return Array(Math.max(0, n - t.length)).fill(0).concat(t); };
+  const nowHM = () => new Date().toTimeString().slice(0, 5);
+  const sqrtScale = (a, top) => a.map((x) => Math.sqrt(Math.min(1, x / top)));
+  const pctCell = (v) => div({ style: "display:flex;align-items:center;gap:7px;min-width:92px" }, div({ style: "flex:1" }, segbar(Math.min(100, v), 100)), v.toFixed(1));
+
+  const scenes = {
+    // The home sheet: all of it live.
+    now() {
+      sheet(
+        place(center(feed(["time.minute", "sun.rise", "sun.set"], ([, r, s]) => dayDial({ rise: r ?? "07:00", set: s ?? "17:00", size: 244 }), MIN)), "1 / 1 / 3 / 3"),
+        place(tile("Wx", feed("wx.kind", (k) => weatherIcon(k, 46)), { glyph: "cloud", tone: "iconic", waves: { from: 34 },
+          count: feed(["wx.temp", "wx.text", "wx.rain_from"], ([t, x, r]) => [div(`${num(t)}°C ${(x ?? "").toLowerCase()}`), div(r ? `rain ${r}` : "dry 24 h")]) }), "1 / 3 / 3 / 4"),
+        place(tile("Calendar", feed(["time.minute", "cal.week"], ([, wk]) => {
+          const today = new Date().toLocaleDateString("sv"), up = (wk ?? []).filter((e) => !(e.date === today && e.past)).slice(0, 3);
+          const day = (e) => (e.date === today ? "" : new Date(e.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short" }) + " ");
+          return up.length ? lines(up.map((e) => [day(e) + (e.all_day ? "all day" : e.t), e.title, e.dur ? dur(e.dur) : ""])) : div({ style: "font:600 15px var(--sans)" }, "Nothing this week");
+        }, MIN), { glyph: "calendar", tone: "list", count: feed(["time.minute", "cal.next"], ([, n]) => (n ? `next in ${dur(Math.max(0, n.in_min))}` : "clear for a week"), MIN) }), "1 / 4 / 2 / 6"),
+        place(tile("Shop", feed("shop.items", (it) => (it.length ? checklist(it.slice(0, 6).map((i) => [i.text, i.qty, i.done])) : div("Nothing needed"))), { glyph: "bag", tone: "list", count: feed("shop.open", (n) => `${n} to get`) }), "1 / 6 / 3 / 7"),
+        place(tile("Grid", feed("carbon.now", (g) => bignum(num(g), { unit: "g" })), { glyph: "leaf", count: feed(["carbon.index", "carbon.best"], ([i, b]) => [sigil("state", i === "very low" || i === "low" ? "ok" : i === "moderate" ? "warn" : "err", 10), ` ${b ? "best " + b[0] : i ?? ""}`]) }), "2 / 4 / 3 / 5"),
+        place(tile("Sys", feed(["cpu.total", "mem.pct", "disk.pct"], ([c, m, d]) => lines([["cpu", "", num(c) + "%"], ["ram", "", num(m) + "%"], ["disk", "", num(d) + "%"]])), { glyph: "cpu", tone: "list", count: feed("sys.uptime", (s) => "up " + upfmt(s)) }), "2 / 5 / 3 / 6"),
+        place(tile("Next 24 h", feed("wx.hourly", (t) => areaChart(t, { w: 330, h: 64, labels: [["now", 0], ["+6h", 6], ["+12h", 12], ["+18h", 18]] }), MIN), { glyph: "thermo", tone: "fill",
+          count: feed("wx.hourly", (t) => `min ${num(Math.min(...t), 1)} · max ${num(Math.max(...t), 1)} °C`) }), "3 / 1 / 4 / 3"),
+        place(tile("Link", feed(["wifi.bars", "net.down", "net.up"], ([b, d, u]) => div({ style: "display:flex;flex-direction:column;gap:6px;align-items:flex-start" }, sigil("bars", b ?? 0, 26), div({ style: "font:600 13px var(--mono)" }, `↓ ${num(d, 1)}`), div({ style: "font:600 13px var(--mono)" }, `↑ ${num(u, 1)}`))), { glyph: "wifi", count: feed("wifi.rssi", (r) => (r == null ? "MB/s" : `${r} dBm`)) }), "3 / 3 / 4 / 4"),
+        place(tile("Claude", feed("claude.say", (s) => div({ style: "font:600 17px/1.35 var(--sans)" }, s), { fallback: div({ style: "font:500 15px var(--sans)" }, "Nothing to say yet.") }), { glyph: "sparkle", count: feed("claude.at", (t) => `said ${t}`, { fallback: "waiting" }) }), "3 / 4 / 4 / 7"),
+      );
+    },
+
+    // The day as a route diagram, from data/calendar.json.
+    day() {
+      sheet(
+        place(tile("Today", feed(["time.minute", "cal.today"], ([, ev]) => {
+          const m = (hm) => +hm.slice(0, 2) * 60 + +hm.slice(3);
+          const tt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+          const stops = (ev ?? []).filter((e) => !e.all_day).map((e) => ({ at: e.t, to: tt(Math.min(1439, m(e.t) + Math.max(15, e.dur || 0))), name: e.title }));
+          const timed = (ev ?? []).filter((e) => !e.all_day), from = Math.min(7 * 60, ...timed.map((e) => m(e.t))), to = Math.max(21 * 60, ...timed.map((e) => m(e.t) + e.dur + 30));
+          return routes({ from: tt(Math.floor(from / 60) * 60), to: tt(Math.min(1439, Math.ceil(to / 60) * 60)), now: nowHM(), w: 722, lanes: [{ label: "Today", look: "solid", stops }] });
+        }, MIN), { glyph: "calendar", count: feed("cal.today", (ev) => `${(ev ?? []).length} events today · Google Calendar`), tone: "fill" }), "1 / 1 / 3 / 7"),
+        place(tile("Busy", feed("cal.today", (ev) => { const h = (ev ?? []).reduce((a, e) => a + (e.dur || 0), 0) / 60; return div({ style: "width:100%" }, waffle(h, 14, { cols: 14 }), div({ style: "height:7px" }), readouts([{ label: "Busy", value: h, max: 14, text: num(h, 1), unit: "h" }])); }), { glyph: "clock", count: "of 14 h" }), "3 / 1 / 4 / 3"),
+        place(tile("Next", feed(["time.minute", "cal.week"], ([, wk]) => {
+          const today = new Date().toLocaleDateString("sv"), up = (wk ?? []).filter((e) => !(e.date === today && e.past)).slice(0, 3);
+          const day = (e) => (e.date === today ? "" : new Date(e.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short" }) + " ");
+          return up.length ? lines(up.map((e) => [day(e) + (e.all_day ? "day" : e.t), e.title, e.dur ? dur(e.dur) : ""])) : div("Nothing this week");
+        }, MIN), { glyph: "flag", tone: "list", count: "next 7 days · Google Calendar" }), "3 / 3 / 4 / 5"),
+        place(tile("Sun & moon", feed(["sun.rise", "sun.set", "moon.phase", "moon.name"], ([r, s, ph, nm]) => div({ style: "display:flex;gap:12px;align-items:center;width:100%" }, moon(ph ?? 0, 46), kvgrid({ rise: r ?? "–", set: s ?? "–", moon: nm ?? "–" }, 1))), { glyph: "sun", count: feed(["sun.rise", "sun.set"], ([r, s]) => { if (!r) return ""; const m = (x) => +x.slice(0, 2) * 60 + +x.slice(3); return `day ${dur(m(s) - m(r))}`; }) }), "3 / 5 / 4 / 7"),
+      );
+    },
+
+    // Your Octopus account: the tariff, the rate, and the smart meter's usage (a half-hourly tariff also shows its rate chart).
+    power() {
+      sheet(
+        place(tile("Usage · kWh / half hour", feed(["power.kind", "power.usage_slots", "power.slots", "power.cheap", "time.minute"], ([kind, us, sl, ch]) => {
+          if (kind === "halfhourly" && sl && sl.length) {
+            const vals = sl.map((x) => x[1]), now = nowHM();
+            let ni = vals.length - 1; for (let i = 0; i < sl.length; i++) if (sl[i][0] > now) { ni = Math.max(0, i - 1); break; }
+            const o = { w: 468, h: 206, now: ni + 0.5, marks: true, fmt: (i, v) => `${sl[i][0]} ${v}p`, limit: [0, "0p"], labels: sl.map((x, i) => [x[0].slice(0, 2), i]).filter(([h, i]) => sl[i][0].endsWith(":00") && +h % 6 === 0 && (i === 0 || sl[i][0] !== sl[i - 1][0])) };
+            if (ch) { const a = sl.findIndex((x) => x[0] === ch[0]); const b = sl.findIndex((x) => x[0] === ch[1]); if (a >= 0) o.window = [a, (b > a ? b : sl.length) - 1]; }
+            return areaChart(vals, o);
+          }
+          if (us && us.length) return areaChart(us, { w: 468, h: 206, marks: true, fmt: (i, v) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"} ${v}`, labels: [["00", 0], ["06", 12], ["12", 24], ["18", 36], ["23", 46]] });
+          return div({ style: "font:500 15px/1.4 var(--sans)" }, "No smart-meter readings yet.", div({ style: "font:500 12px var(--mono);margin-top:6px" }, "Octopus publishes them about a day behind, and a new tariff starts empty."));
+        }, MIN), { glyph: "bolt", tone: "fill", count: feed(["power.usage_day", "power.usage_latest"], ([d, l]) => (d ? `${d} · latest reading ${l}` : "waiting for the meter · Octopus API")) }), "1 / 1 / 3 / 5"),
+        place(tile("Unit rate", feed(["power.rate", "power.standing"], ([r, sc]) => div({ style: "width:100%" }, bignum(num(r, 1), { unit: "p" }), readouts([{ label: "Standing", value: sc ?? 0, max: 100, text: num(sc, 1), unit: "p/day" }]))), { glyph: "plug", count: feed(["power.tariff", "power.kind"], ([t, k]) => `${t ?? "–"} · ${k === "halfhourly" ? "half-hourly" : "flat rate"}`) }), "1 / 5 / 3 / 7"),
+        place(tile("Last full day", feed(["power.usage_kwh", "power.usage_cost"], ([k, c]) => (k == null ? div("–") : div({ style: "display:flex;gap:14px;align-items:flex-end" }, bignum(num(k, 1), { unit: "kWh" }), div({ style: "font:600 20px var(--cond)" }, "£" + num(c, 2))))), { count: feed("power.usage_day", (d) => d ?? "no data yet") }), "3 / 1 / 4 / 3"),
+        place(tile("Week · kWh", feed("power.week", (w) => (w && w.length ? dotBars(last(w.map((x) => x[1]), 7).map((v) => Math.min(1, v / Math.max(...w.map((x) => x[1]), 1))), { rows: 6 }) : div("–"))), { glyph: "pulse", count: feed("power.week", (w) => (w && w.length ? `${w.length} days · avg ${num(w.reduce((a, x) => a + x[1], 0) / w.length, 1)}` : "no data yet")) }), "3 / 3 / 4 / 5"),
+        place(tile("Account", feed(["power.product", "power.updated"], ([p, u]) => kvgrid({ product: p ?? "–", updated: u ?? "–" }, 1)), { glyph: "info", count: "Octopus API · every 15 min" }), "3 / 5 / 4 / 7"),
+      );
+    },
+
+    // The grid's carbon forecast: green under 100 g (the National Grid ESO regional forecast).
+    green() {
+      sheet(
+        place(tile("Clean energy · gCO₂/kWh · next 24 h", feed(["carbon.slots", "carbon.best", "carbon.green", "time.minute"], ([sl, best, lim]) => {
+          if (!sl) return div("–");
+          const vals = sl.map((x) => x[1]);
+          const o = { limit: lim ?? 100, w: 700, h: 190, now: 0, limitLabel: `${lim ?? 100} g green line`, labels: sl.map((x, i) => [x[0].slice(0, 2), i]).filter(([h, i]) => sl[i][0].endsWith(":00") && +h % 3 === 0 || i === 0) };
+          if (best) { const a = sl.findIndex((x) => x[0] === best[0]); if (a >= 0) { o.window = [a, Math.min(a + 3, sl.length - 1)]; o.windowLabel = `cleanest ${best[0]}–${best[1]}`; } }
+          return limitBars(vals, o);
+        }, MIN), { glyph: "leaf", tone: "fill", count: feed(["carbon.region", "carbon.slots"], ([r, sl]) => `${r ?? "–"} · solid = under 100 g · ${sl ? `${Math.round((100 * sl.filter((x) => x[1] <= 100).length) / sl.length)}% of the day green` : ""}`) }), "1 / 1 / 3 / 7"),
+        place(tile("Now", feed("carbon.now", (g) => bignum(num(g), { unit: "g" })), { glyph: "leaf", count: feed("carbon.index", (i) => [sigil("state", i === "very low" || i === "low" ? "ok" : i === "moderate" ? "warn" : "err", 10), ` ${i ?? "–"}`]) }), "3 / 1 / 4 / 3"),
+        place(tile("Cleanest 2 h", feed("carbon.best", (b) => (b ? div({ style: "font:600 24px/1.1 var(--cond)" }, `${b[0]}–${b[1]}`, div({ style: "font:500 12px var(--mono)" }, `avg ${b[2]} g`)) : div("–"))), { glyph: "clock", count: "run the dishwasher then" }), "3 / 3 / 4 / 5"),
+        place(tile("Mix now", feed("carbon.mix", (m) => lines(Object.entries(m ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => ["", k, num(v, 0) + "%"]))), { glyph: "wave", tone: "list", count: "generation by fuel" }), "3 / 5 / 4 / 7"),
+      );
+    },
+
+    // The computer: bound to feeds/machine.py, net.py and wifi.sh.
+    machine() {
+      sheet(
+        place(tile("¹ cpu", feed(["cpu.hist", "cpu.cores", "sys.load_hist", "cpu.count", "cpu.total"], ([h, cores, lh, n, tot]) => {
+          const right = cores && Object.keys(cores).length
+            ? sparkRows(Object.keys(cores).slice(0, 4).map((k) => ({ label: "C" + k.slice(3), values: last(cores[k], 18), text: num(cores[k].at(-1) * 100) + "%" })), { rows: 4 })
+            : sparkRows([["1m", "1"], ["5m", "5"], ["15m", "15"]].map(([label, k]) => ({ label, values: last((lh?.[k] ?? []).map((v) => v / (n || 1)), 18), text: num(lh?.[k]?.at(-1), 2) })), { rows: 4 });
+          return div({ style: "display:flex;gap:16px;width:100%;height:100%;align-items:stretch" },
+            div({ style: "flex:1.15;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px" }, dotBars(last(h, 22), { rows: 15 }), small(`total ${num(tot)}% · ${n ?? "–"} cores`)),
+            div({ style: "flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center" }, right));
+        }), { tone: "legend", count: feed(["sys.load", "sys.load5", "sys.load15", "sys.temp"], ([a, b, c, t]) => [sigil("trend", "flat"), ` load ${num(a, 2)} ${num(b, 2)} ${num(c, 2)}` + (t != null ? ` · ${t}°C` : "")]) }), "1 / 1 / 3 / 5"),
+        place(tile("² mem", feed(["mem.apps", "mem.cache", "mem.free", "swap.used", "swap.total"], ([a, c, f, su, st]) => div({ style: "width:100%" }, stackBar([{ label: "apps", value: +num(a, 1), look: "solid" }, { label: "cache", value: +num(c, 1), look: "hatch" }, { label: "free", value: +num(f, 1), look: "outline" }]), div({ style: "height:7px" }),
+          readouts([{ label: "Swap", value: su ?? 0, max: Math.max(st ?? 1, 0.1), text: num(su, 1), unit: `/${num(st, 0)}G` }]))), { tone: "legend", count: feed("mem.total", (t) => `${num(t, 0)} GB`) }), "1 / 5 / 2 / 7"),
+        place(tile("³ net", feed(["net.down_hist", "net.up_hist"], ([d, u]) => { const top = Math.max(0.5, ...(d ?? []), ...(u ?? [])); return div({ style: "width:100%" }, dotMirror(sqrtScale(last(d, 44), top), sqrtScale(last(u, 44), top), { rows: 5 })); }),
+          { tone: "legend", count: feed(["net.iface", "net.down", "net.up"], ([i, d, u]) => [ui.h("b", "↓ " + num(d, 1)), " ", ui.h("b", "↑ " + num(u, 1)), ` MB/s · ${i ?? "–"}`]) }), "2 / 5 / 3 / 7"),
+        place(tile("⁶ system", feed(["sys.host", "sys.kernel", "sys.uptime", "net.ip", "wifi.ssid", "wifi.rssi", "proc.count"], ([host, kern, up, ip, ssid, rssi, np]) => kvgrid({ host: host ?? "–", kernel: kern ?? "–", up: upfmt(up), ip: ip ?? "–", wifi: rssi != null ? `${rssi} dBm` : "–", procs: np ?? "–" }, 2)), { tone: "legend", count: "feeds/machine.py · every 3 s" }), "3 / 1 / 4 / 4"),
+        feed(["disk.hist", "disk.total", "disk.used"], ([h, t, u]) => place(usageTile("⁴ disk", h && h.length ? h : [u ?? 0], t ?? 1, `${num(u, 2)} TB`).set({ class: "legend" }), "3 / 4 / 4 / 5")),
+        place(tile("⁵ proc", feed("proc.top", (rows) => lines((rows ?? []).slice(0, 3).map((r) => [sigil("state", r.cpu > 50 ? "warn" : "ok", 10), r.name, num(r.cpu, 1) + "%"]))), { tone: "legend list", count: feed("proc.count", (n) => `top 3 of ${n}`) }), "3 / 5 / 4 / 7"),
+      );
+    },
+
+    // The link to the machine itself.
+    live() {
+      const fmtT = (t) => new Date(t).toTimeString().slice(0, 8);
+      sheet(
+        place(tile("sys · load", feed("sys.load", (v) => bignum(num(v, 2))), { glyph: "cpu", count: ["up ", feed("sys.uptime", upfmt)] }), "1 / 1 / 2 / 3"),
+        place(tile("sys · memory", feed("mem.pct", (v) => readouts([{ label: "RAM", value: v, text: String(v), unit: "%" }])), { glyph: "memory", count: "feeds/machine.py" }), "1 / 3 / 2 / 5"),
+        place(tile("Wi-Fi", feed(["wifi.bars", "wifi.rssi"], ([b, r]) => div({ style: "display:flex;gap:10px;align-items:center;font:600 17px var(--sans)" }, sigil("bars", b ?? 0, 24), r != null ? ui.h("small", r + " dBm") : "")), { glyph: "wifi", count: "feeds/wifi.sh · 15 s" }), "1 / 5 / 2 / 7"),
+        place(tile("beat clock", feed("link.server", (l) => { const b = ui.beats(); return lines([["tick", "1 s", "timers"], ["beat", b.cadence.beat / 1000 + " s", "live data"], ["slow", b.cadence.slow / 60000 + " min", "weather"], ["last", b.lastFlush ? fmtT(b.lastFlush) : "–", b.flushes + " batches"], ["link", l, b.bindings + " bound"]]); }, { always: true }), { glyph: "clock", tone: "list", count: "one batch per beat = one repaint" }), "2 / 1 / 4 / 4"),
+        place(tile("feeds", feed("link.server", () => div("see GET /feeds"), { always: true }), { glyph: "wave", tone: "list", count: "machine · net · wifi · weather · power · lists" }), "2 / 4 / 4 / 7"),
+      );
+    },
+
+    // ---- sample scenes: designed layouts on made-up numbers (no sensors or accounts behind them)
+    // One room, stated exactly.
+    room() {
+      const t24 = [21.4, 21.1, 20.9, 20.8, 20.8, 21.0, 21.6, 22.4, 23.1, 23.8, 24.4, 24.9, 25.4, 25.9, 25.7, 25.5, 25.3, 25.0, 24.6, 24.1, 23.6, 23.0, 22.4, 21.8];
+      sheet(
+        place(tile("Living room", div({ style: "width:100%" },
+          hero("25.5", { unit: "°C", size: 78, status: "COOLING → 23.0", sub: "out 27°" }), div({ style: "height:6px" }),
+          readouts([
+            { label: "Temp", value: 25.5, max: 30, text: [sigil("trend", "down", 10), " 25.5"], unit: "°C" },
+            { label: "Humid", value: 48, text: "48", unit: "%" },
+            { label: "CO₂", value: 620, max: 1500, text: "620", unit: "ppm" },
+            { label: "PM2.5", value: 6, max: 50, text: "6", unit: "µg" },
+          ])), { glyph: "thermo", count: "zigbee ×2" }), "1 / 1 / 3 / 4"),
+        place(tile("Scale · target 23.0", ruler({ min: 16, max: 30, value: 25.5, target: 23, step: 2, w: 330 }), { glyph: "thermo", count: [sigil("trend", "fall"), " Δ +2.5 · −0.8/h"], tone: "fill" }), "1 / 4 / 2 / 7"),
+        place(tile("Scenes · ceiling ×3", div({ style: "width:100%;display:flex;flex-direction:column;gap:7px" },
+          pills([{ label: "Dinner", icon: "utensils" }, "Movie", "Off"], { active: 0 }), slider(0.6, "BRIGHT")), { glyph: "bulb", count: "12:58 by voice" }), "2 / 4 / 3 / 7"),
+        place(tile("Devices", [device({ name: "TV · 90 W", on: true, icon: "tv" }), device({ name: "Floor lamp", on: false, icon: "bulb" })], { glyph: "plug", count: [sigil("count", 2), " of 9 on"], tone: "list" }), "3 / 1 / 4 / 4"),
+        place(tile("24 h temp", areaChart(t24, { w: 330, h: 64, now: 13.3, labels: [["00", 0], ["06", 6], ["12", 12], ["18", 18]] }), { glyph: "thermo", count: "min 20.8 @03 · max 25.9 @13", tone: "fill" }), "3 / 4 / 4 / 7"),
+      );
+    },
+    // A console: square modules and Claude's activity log.
+    console() {
+      const rooms = [25.5, 22.1, 21.4, 23.0, 20.2, 24.4];
+      const rows = Array.from({ length: 6 }, (_, d) => Array.from({ length: 24 }, (_, hr) => 0.25 + 0.55 * Math.exp(-Math.pow((hr - (8 + d % 3)) / 2.6, 2)) + 0.8 * Math.exp(-Math.pow((hr - 19) / 2.4, 2)) + 0.05 * Math.sin(hr + d)));
+      const use24 = Array.from({ length: 24 }, (_, hr) => 0.3 + 0.5 * Math.exp(-Math.pow((hr - 8) / 2.5, 2)) + 0.9 * Math.exp(-Math.pow((hr - 19) / 2.2, 2)));
+      sheet(
+        place(tile("wx", word("WX", "12° RAIN"), { tone: "fill" }), "1 / 1 / 2 / 2"),
+        place(tile("24 h", polar(use24, { labels: [["00", 0], ["06", 6], ["12", 12], ["18", 18]] }), { tone: "fill" }), "1 / 2 / 2 / 3"),
+        place(tile("6 d", ridgeline(rows, { w: 100, h: 92, hours: [["0", 0], ["12", 12], ["23", 23]] }), { tone: "fill" }), "2 / 1 / 3 / 2"),
+        place(tile("sun", dayDial({ rise: "07:42", set: "16:48", size: 88 }), { tone: "fill" }), "2 / 2 / 3 / 3"),
+        place(tile("equ", div({ style: "font:500 9.5px/1.6 var(--mono)" }, ["EQU .0093/226+784", "98RTA> 34(PB)", "kWh 7.4/10=.74", "ΔT +2.5 −0.8/h", "P 1008 ↓ 3hPa"].map((l) => div(l))), { tone: "fill" }), "3 / 1 / 4 / 2"),
+        place(tile("enr", word("ENR", "1.12 KR"), { tone: "fill" }), "3 / 2 / 4 / 3"),
+        place(tile("claude", div({ style: "display:flex;flex-direction:column;width:100%;height:100%;gap:6px" },
+          pane(bignum("IDLE")),
+          div({ style: "flex:1.3;min-height:0" }, lines([["07:43", "heard: egg time?", "1.8s"], ["07:43", "timer set 06:30"], ["07:42", "greeted · jacket"], ["07:40", "wx fetch ok", "ok"]])),
+          div({ style: "height:34px" }, dotBars(wave(30, 0.3, 0.2, 7), { rows: 3 }))), { tone: "list", count: "idle · 14 turns" }), "1 / 3 / 4 / 5"),
+        place(tile("cpu", dotBars(wave(18, 0.3, 0.16, 0), { rows: 8 }), { tone: "fill" }), "1 / 5 / 2 / 6"),
+        place(tile("sys", word("SYS", "OK 4/5"), { tone: "fill" }), "1 / 6 / 2 / 7"),
+        place(tile("rooms", polar(rooms, { max: 30, rings: 3, marks: true, labels: [["L", 0], ["K", 1], ["B", 2], ["O", 3], ["H", 4], ["G", 5]] }), { tone: "fill" }), "2 / 5 / 3 / 6"),
+        place(usageTile("disk", disk, 4, "1.43/4 TB"), "2 / 6 / 3 / 7"),
+        place(tile("net", dotMirror(wave(20, 0.1, 0.07, 5), wave(20, 0.45, 0.3, 2), { rows: 4 }), { tone: "fill" }), "3 / 5 / 4 / 6"),
+        place(tile("tmr", word("TMR", "06:30"), { tone: "fill" }), "3 / 6 / 4 / 7"),
+      );
+    },
+    // Motion, stepped for e-ink: one-second ticks, words, shifting graphs.
+    motion() {
+      const rnd = (a, b) => a + Math.random() * (b - a);
+      sheet(
+        place(tile("Timer · egg", liveTimer(390, { label: "egg" }), { glyph: "clock", tone: "fill", count: [spinner(11), " ticks 1/s"] }), "1 / 1 / 4 / 3"),
+        place(tile("Claude · thinking", div({ style: "display:flex;gap:10px;width:100%;align-items:flex-start" }, spinner(18), typewriter("Checking the forecast. Rain from 15:00, so take a jacket.", { step: 2 })), { glyph: "sparkle", count: "2 words / s" }), "1 / 3 / 2 / 7"),
+        place(tile("Today · kWh", countUp(7.4, { from: 0, ticks: 6, dec: 1, unit: "kWh" }), { glyph: "bolt", count: [sigil("trend", "up"), " counts up, eased"] }), "2 / 3 / 4 / 5"),
+        place(tile("net · eth0 · live", stream([wave(30, 0.1, 0.07, 5), wave(30, 0.45, 0.3, 2)], () => [rnd(0.03, 0.2), rnd(0.2, 0.8)], (s) => dotMirror(s[0], s[1], { rows: 4 }), 2000), { tone: "legend", count: "shifts 1 col / 2 s" }), "2 / 5 / 3 / 7"),
+        place(tile("cpu · live", stream([wave(30, 0.3, 0.14, 0)], () => [rnd(0.15, 0.7)], (s) => dotBars(s[0], { rows: 5 }), 1000), { tone: "legend", count: "1 col / s" }), "3 / 5 / 4 / 7"),
+      );
+    },
+    // After a voice question.
+    answer() {
+      sheet(
+        place(tile("You asked", div({ class: "ask" }, "How long do I boil an egg?"), { glyph: "sparkle", count: "07:43 · en · conf 0.93 · 1.8 s", tone: "fill" }), "1 / 1 / 2 / 7"),
+        place(tile("Answer", bignum("6½", { unit: "min" }), { inverted: true, glyph: "clock", count: "jammy yolk · from boiling" }), "2 / 1 / 4 / 3"),
+        place(tile("Timer", timerRing(390, 390), { glyph: "clock", count: "set 07:43 · rings 07:50", tone: "fill" }), "2 / 3 / 4 / 5"),
+        place(tile("Steps", list(["Bring water to a boil", "Lower the eggs in", "Start the timer", "Ice bath, 2 min", "Peel under water"], { ordered: true }), { glyph: "check", count: [sigil("count", 5), " steps"], tone: "list" }), "2 / 5 / 4 / 7"),
+      );
+    },
+    // Your coding agents.
+    agents() {
+      sheet(
+        place(tile("Needs you", div({ class: "ask" }, "Which e-ink panel should I target?"), { glyph: "warn", count: [sigil("state", "warn"), " harness · 1 min · blocks display-ui"], inverted: true, tone: "fill" }), "1 / 1 / 2 / 7"),
+        place(tile("Sessions", table([["display-ui", sigil("state", "ok", 10), "writing ui.ts", "12m"], ["harness", sigil("state", "warn", 10), "needs answer", "1m"], ["browser-orch", sigil("state", "idle", 10), "PR #41", "26m"], ["voice-loop", sigil("state", "ok", 10), "tests", "4m"]], { head: ["session", "", "state", "age"] }),
+          { glyph: "nodes", count: "5 sessions · 3 running · 1 blocked" }), "2 / 1 / 4 / 4"),
+        place(tile("Pipeline", readouts([{ label: "PRs", value: 4, max: 10, text: "4", unit: "open" }, { label: "CI", value: 98, text: "98", unit: "%" }, { label: "Tok", value: 1.2, max: 5, text: "1.2", unit: "M" }]), { glyph: "check", count: "last 2 h" }), "2 / 4 / 3 / 7"),
+        place(tile("Peers", kvgrid({ Active: "3", Idle: "2", Blocked: "1", Queue: "0", Tokens: "1.2M", Cost: "$4.10" }, 2), { glyph: "hub", count: "agent graph · 6 nodes" }), "3 / 4 / 4 / 7"),
+      );
+    },
+    // Every icon (fitted to one live area), the sigils, and the weather symbols.
+    icons() {
+      ui.size(800, 820);
+      ui.show(
+        topbar("Icons", `${ui.icons().length} + weather`),
+        div({ style: "display:grid;grid-template-columns:repeat(9,1fr);gap:12px 6px" },
+          ...ui.icons().map((n) => col({ class: "center" }, icon(n, { size: 30 }), small(n)))),
+        divider(),
+        row({ class: "fit" }, ["clear", "night", "partly", "cloudy", "rain", "snow", "storm", "fog", "wind"].map((k) => col({ class: "center" }, weatherIcon(k, 56), small(k)))),
+        divider(),
+        row({ class: "fit" }, [
+          ["state", "ok"], ["state", "idle"], ["state", "warn"], ["state", "err"], ["state", "?"], ["level", [0, 8]], ["level", [2, 8]], ["level", [4, 8]], ["level", [6, 8]], ["level", [8, 8]],
+          ["trend", "up"], ["trend", "down"], ["trend", "flat"], ["trend", "rise"], ["trend", "fall"], ["age", 0], ["age", 15], ["age", 30], ["age", 45], ["age", 90],
+          ["count", 1], ["count", 3], ["count", 5], ["count", 6], ["count", 9], ["dir", 0], ["dir", 90], ["dir", 220], ["bars", 1], ["bars", 4],
+        ].map(([k, v]) => col({ class: "center" }, sigil(k, v, 26), small(`${k} ${Array.isArray(v) ? v.join("/") : v}`)))));
+    },
+  };
+
+  const name = scenes[sp.get("scene")] ? sp.get("scene") : "now";
+  const ek = sp.get("eink");
+  // layout depends on the fonts, so nothing is built (or measured) until they are loaded
+  ui.ready().then(() => {
+    if (sp.get("accent")) ui.accent("#" + sp.get("accent"));
+    if (ek !== null) ui.eink({ algo: ek || "atkinson" });
+    scenes[name]();
+    const sample = ["room", "console", "motion", "answer", "agents", "icons"].includes(name);
+    if (name !== "icons") ui.frame({ title: name + (sample ? " · sample" : ""), sheet: `${Object.keys(scenes).indexOf(name) + 1}/${Object.keys(scenes).length}`, ...SIG });
+    fit();
+    showFit();
+  });
+
+  // ---- scene switcher (outside the screen) -----------------------------------
+  const navEl = document.getElementById("scenenav");
+  for (const n of Object.keys(scenes)) {
+    const q = new URLSearchParams(sp); q.set("scene", n);
+    const a = document.createElement("a");
+    a.href = "?" + q; a.textContent = n; if (n === name) a.className = "on";
+    navEl.append(a);
+  }
+
+  // ---- fit indicator: the screen always contains the scene; this says how --------------
+  const fitEl = document.createElement("span");
+  fitEl.id = "fit";
+  navEl.append(fitEl);
+  function showFit() {
+    const f = ui.fits();
+    const bad = f.clipped || f.dropped.length || f.crowded.length;
+    fitEl.className = bad ? "bad" : "";
+    fitEl.textContent = f.crowded.length ? `crowded: ${f.crowded.map((c) => c.split(" ")[0]).join(", ")}`
+      : f.clipped ? `clipped at ×${f.scale}`
+      : f.dropped.length ? `hid ${f.dropped.length} · ×${f.scale}`
+      : f.scale < 1 ? `scaled ×${f.scale}`
+      : `natural fit · ${f.freeY}px free`;
+  }
+  addEventListener("ui:settled", showFit);
+  showFit();
+</script>

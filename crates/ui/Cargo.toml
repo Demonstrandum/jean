@@ -1,0 +1,7 @@
+[package]
+name = "ui"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+oxc = { version = "0.110.0", features = ["transformer", "codegen", "semantic"] }

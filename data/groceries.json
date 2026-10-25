@@ -1,0 +1,8 @@
+{
+  "_help": "The shopping list. Claude edits it when you say 'we need oat milk'; done items stay until cleared.",
+  "items": [
+    { "text": "Milk", "qty": "2" },
+    { "text": "Eggs", "qty": "12" },
+    { "text": "Oat milk" }
+  ]
+}

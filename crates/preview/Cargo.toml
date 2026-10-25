@@ -1,0 +1,10 @@
+[package]
+name = "preview"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+serde_json = "1.0.154"
+store = { version = "0.1.0", path = "../store" }
+tiny_http = "0.12.0"
+ui = { path = "../ui" }

@@ -1,0 +1,10 @@
+{
+  "city": "London",
+  "lat": 51.5074,
+  "lon": -0.1278,
+  "tz": "Europe/London",
+  "postcode": "SW1A 1AA",
+  "octopus": {
+    "gsp": "_C"
+  }
+}
