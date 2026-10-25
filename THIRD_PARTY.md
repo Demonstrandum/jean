@@ -10,5 +10,7 @@
 Data is fetched at run time from Open-Meteo (weather), the National Grid ESO Carbon Intensity API, the Octopus Energy API and Google
 Calendar, under their own terms; nothing from them is stored in this repository.
 
-Berkeley Mono (the default monospace) is a licensed typeface that is **not** included. Without it the UI uses the system monospace.
-To use your own licensed copy, put it at `crates/ui/fonts/mono.woff2` (it is git-ignored; keep it out of public forks).
+Berkeley Mono (the default monospace) is a licensed typeface owned by its licensee. Only an [age](https://age-encryption.org)-encrypted copy,
+`crates/ui/fonts/berkeley.woff2.age`, is in this repository; it is unusable without the key, which is not published. The server decrypts it
+at startup (in memory) if `secrets/font.key` exists. Without the key the UI uses the system monospace. Do not ask for the key: the
+typeface must be licensed from [Berkeley Graphics](https://berkeleygraphics.com/typefaces/berkeley-mono/).

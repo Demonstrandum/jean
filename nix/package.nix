@@ -1,5 +1,6 @@
 # The display server: one binary with the UI kit, pages and fonts compiled in.
-# Inter and Archivo are in the repository. A licensed mono face placed at crates/ui/fonts/mono.woff2 (tracked, e.g. in a private fork) is compiled in too.
+# The fonts are Git LFS objects (build from a checkout with `git lfs pull`, or a flake input with ?lfs=1). Berkeley Mono is compiled in encrypted;
+# the server unlocks it at startup with secrets/font.key.
 { rustPlatform, lib }:
 rustPlatform.buildRustPackage {
   pname = "display-server";

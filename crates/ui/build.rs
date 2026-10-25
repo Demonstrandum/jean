@@ -1,9 +1,15 @@
-// The monospace face (Berkeley Mono) is licensed and is not part of the repository. If the owner puts it at
-// crates/ui/fonts/mono.woff2 it is compiled in; without it the UI falls back to the system monospace.
+// The fonts are stored with Git LFS. A clone made without git-lfs holds small text "pointer" files instead, which would
+// compile in as broken fonts: fail the build with the fix instead.
 fn main() {
-    println!("cargo:rerun-if-changed=fonts/mono.woff2");
-    println!("cargo::rustc-check-cfg=cfg(has_mono)");
-    if std::path::Path::new("fonts/mono.woff2").exists() {
-        println!("cargo:rustc-cfg=has_mono");
+    let dir = std::path::Path::new("fonts");
+    println!("cargo:rerun-if-changed=fonts");
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            if let Ok(bytes) = std::fs::read(e.path()) {
+                if bytes.starts_with(b"version https://git-lfs") {
+                    panic!("{} is a Git LFS pointer, not the font: run `git lfs install && git lfs pull` and build again", e.path().display());
+                }
+            }
+        }
     }
 }

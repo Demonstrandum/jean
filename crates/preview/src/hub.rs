@@ -46,10 +46,6 @@ impl Hub {
         self.cv.notify_all();
     }
 
-    pub fn get(&self, key: &str) -> Option<Value> {
-        self.inner.lock().unwrap().map.get(key).map(|e| e.value.clone())
-    }
-
     /// Everything, as `{key: {value, ts}}`.
     pub fn snapshot(&self) -> Value {
         let g = self.inner.lock().unwrap();

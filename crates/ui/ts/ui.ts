@@ -1512,7 +1512,7 @@ const FONT_BASE: string = (window as any).UI_FONT_BASE ?? "/fonts";
 // [family, file, weight range, width range]. All variable: any weight in range, and "UI Cond" is Archivo pinned to its narrowest width
 // (Inter has no width axis; use another wdth family here to get one for the sans).
 const FONT_FILES: [string, string, string, string][] = [
-  ["Berkeley Mono", "mono.woff2", "100 900", "100%"],
+  ["Berkeley Mono", "berkeley.woff2", "100 900", "100%"],
   ["Inter", "InterVariable.woff2", "100 900", "100%"],
   ["UI Cond", "ArchivoVariable.woff2", "100 900", "62% 62%"],
 ];

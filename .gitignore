@@ -6,5 +6,5 @@ __pycache__/
 /config.json
 /data/disk-history.json
 /feeds/.logs/
-# licensed face: supply your own (see README)
-/crates/ui/fonts/mono.woff2
+# the licensed font is committed only as berkeley.woff2.age; never the plaintext
+/crates/ui/fonts/berkeley.woff2

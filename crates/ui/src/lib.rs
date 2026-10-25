@@ -43,21 +43,19 @@ pub fn bundle(src: &str) -> Result<String, String> {
     Ok(format!("(() => {{\n{js}\n}})();\n"))
 }
 
-/// Bundled variable font files, served at `/fonts/<file>`: Inter and Archivo (SIL OFL, from Fontsource), plus
-/// `mono.woff2` when the owner has supplied one (a licensed face, never committed: see build.rs).
-fn fonts() -> Vec<(&'static str, &'static [u8])> {
-    let mut v: Vec<(&'static str, &'static [u8])> = vec![
-        ("InterVariable.woff2", &include_bytes!("../fonts/InterVariable.woff2")[..]),
-        ("ArchivoVariable.woff2", &include_bytes!("../fonts/ArchivoVariable.woff2")[..]),
-    ];
-    #[cfg(has_mono)]
-    v.push(("mono.woff2", &include_bytes!("../fonts/mono.woff2")[..]));
-    v
-}
+/// Bundled variable font files, served at `/fonts/<file>`: Inter and Archivo (SIL OFL, from Fontsource).
+const FONTS: [(&str, &[u8]); 2] = [
+    ("InterVariable.woff2", include_bytes!("../fonts/InterVariable.woff2")),
+    ("ArchivoVariable.woff2", include_bytes!("../fonts/ArchivoVariable.woff2")),
+];
 
-/// A bundled font file by name.
+/// Licensed faces, compiled in only as age-encrypted files: `(served name, ciphertext)`. The server decrypts them at startup
+/// with the key in `secrets/font.key` (see crates/preview); without the key the UI falls back to the system monospace.
+pub const ENCRYPTED_FONTS: [(&str, &[u8]); 1] = [("berkeley.woff2", include_bytes!("../fonts/berkeley.woff2.age"))];
+
+/// A bundled (open-licensed) font file by name.
 pub fn font(file: &str) -> Option<&'static [u8]> {
-    fonts().into_iter().find(|(name, _)| *name == file).map(|(_, bytes)| bytes)
+    FONTS.iter().find(|(name, _)| *name == file).map(|(_, bytes)| *bytes)
 }
 
 /// Strip types from a REPL eval. Unlike [`bundle`] there is no IIFE wrapper: the result runs as
@@ -90,8 +88,12 @@ mod tests {
     #[test]
     fn unknown_fonts_are_not_served() {
         assert!(font("nope.ttf").is_none());
-        assert!(font("InterVariable.woff2").is_some());
-        assert_eq!(font("mono.woff2").is_some(), std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/mono.woff2")).exists());
+        for (name, bytes) in FONTS {
+            assert!(bytes.starts_with(b"wOF2"), "{name} is a real woff2 (not an LFS pointer)");
+        }
+        for (name, bytes) in ENCRYPTED_FONTS {
+            assert!(bytes.starts_with(b"age-encryption.org/v1"), "{name} is an age file (not an LFS pointer)");
+        }
     }
 
     #[test]

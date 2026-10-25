@@ -66,7 +66,7 @@ The service account in `secrets/` must be shared on the calendar with "Make chan
 
 `secrets/secrets.json` (Octopus account id and API key, Google calendar id) and `secrets/google-service-account.json` are mode 600 and
 git-ignored. Feeds read them with `_lib.secrets()`; nothing else does, and the page never sees them. On NixOS they are not seeded from
-the repo: copy `secrets/` into the service's root once (`/var/lib/display/secrets`, owner `display`).
+the repo: copy `secrets/` (including `font.key`) into the service's root once (`/var/lib/display/secrets`, owner `display`).
 
 ## Deploying (NixOS)
 
@@ -78,5 +78,5 @@ services.display = { enable = true; kiosk = true; };   # nix/module.nix
 
 It runs the server as `display` under systemd with `root = /var/lib/display` (feeds/, commands/, data/, config.json and the journal in
 state/ are seeded from the repo on first start and then belong to the agent), and optionally a cage + Chromium kiosk on the panel.
-Flakes only see git-tracked files: track `crates/ui/fonts/` (Berkeley Mono is licensed: keep the repo private). The module and package are
-parse-checked but have not been built or booted yet.
+The fonts are Git LFS objects: a flake input from GitHub needs `?lfs=1` (or a local checkout with `git lfs pull`). Put `font.key` in
+`/var/lib/display/secrets/` to unlock Berkeley Mono at startup. The module and package are parse-checked but have not been built or booted yet.

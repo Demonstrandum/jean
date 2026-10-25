@@ -24,8 +24,10 @@ Docs: [live data and the refresh clock](docs/live-data.md), [persistence](docs/p
 
 ## Fonts
 
-Inter and Archivo are included (OFL). The default monospace is Berkeley Mono, which is licensed and not included; supply your own copy at
-`crates/ui/fonts/mono.woff2` or the system monospace is used.
+All font files are stored with Git LFS (`git lfs install` before cloning, or `git lfs pull` after; the build stops with that hint if it sees a
+pointer file). Inter and Archivo are included (OFL). The default monospace, Berkeley Mono, is licensed: only an age-encrypted copy
+(`crates/ui/fonts/berkeley.woff2.age`) is in the repo, and the server decrypts it at startup with `secrets/font.key` (in memory; the plaintext is
+never written). Without the key everything works and the UI falls back to the system monospace.
 
 ## Licence
 

@@ -17,6 +17,7 @@
 //! usage: preview [addr=127.0.0.1:8788] [store-dir=display-state] [root=.]   (feeds/ and commands/ live under root)
 
 mod feeds;
+mod fontkey;
 mod hub;
 
 use std::collections::{HashMap, VecDeque};
@@ -212,6 +213,8 @@ struct App {
     here: PathBuf,
     hub: Arc<hub::Hub>,
     feeds: Arc<feeds::Feeds>,
+    /// Licensed fonts, decrypted at startup (memory only): served at /fonts/<name> next to the bundled ones.
+    fonts: HashMap<String, Vec<u8>>,
 }
 
 fn main() {
@@ -221,6 +224,17 @@ fn main() {
     println!("store: {dir} (head {})", store.head().unwrap_or_default());
 
     let root = PathBuf::from(std::env::args().nth(3).unwrap_or_else(|| ".".into()));
+    // startup: unlock the encrypted fonts with secrets/font.key
+    let mut fonts = HashMap::new();
+    for (name, cipher) in ui::ENCRYPTED_FONTS {
+        match fontkey::decrypt(cipher, &root.join("secrets/font.key")) {
+            Ok(bytes) => {
+                println!("font {name}: unlocked ({} KB)", bytes.len() / 1024);
+                fonts.insert(name.to_string(), bytes);
+            }
+            Err(e) => eprintln!("font {name}: not unlocked ({e}); the UI uses the system monospace"),
+        }
+    }
     let hub = Arc::new(hub::Hub::new());
     let feeds = feeds::Feeds::new(root, hub.clone());
     feeds.supervise();
@@ -233,6 +247,7 @@ fn main() {
         here: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         hub,
         feeds,
+        fonts,
     });
     let server = Arc::new(Server::http(&addr).expect("bind"));
     println!("preview on http://{addr}   (display page: /live)");
@@ -273,7 +288,7 @@ fn handle(app: &Arc<App>, mut req: Request) {
                 Err(e) => text(req, 500, "text/javascript", format!("console.error({e:?});")),
             }
         }
-        (false, p) if p.starts_with("/fonts/") => match ui::font(&p["/fonts/".len()..]) {
+        (false, p) if p.starts_with("/fonts/") => match app.fonts.get(&p["/fonts/".len()..]).map(|v| v.as_slice()).or_else(|| ui::font(&p["/fonts/".len()..])) {
             Some(bytes) => {
                 let resp = Response::from_data(bytes.to_vec())
                     .with_header(Header::from_bytes("Content-Type", "font/woff2").unwrap())
