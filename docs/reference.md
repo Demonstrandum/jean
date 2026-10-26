@@ -899,6 +899,31 @@ giant(value: Child, o: { size?: number; unit?: string } = {})
 An oversized numeral (default 240px). Put it in a tile with {bleed: true}: it sits on the module's
 floor and the module's edge crops it, on purpose. Keep the real value in the label or count.
 
+### `cistercianPath`
+
+```ts
+cistercianPath(n: number): string
+```
+
+SVG path data of a Cistercian numeral for 0..9999, in a box 2 wide and 3 tall (x from -1 to 1, y from 0 to 3): the stem, then each
+non-zero digit's strokes in its corner (units top-right, tens top-left, hundreds bottom-right, thousands bottom-left).
+
+### `cistercian`
+
+```ts
+cistercian(n: number, o: { height?: number } = {}): HTMLElement
+```
+
+A Cistercian numeral (0..9999) as an inline mark, `height` px tall (default 1.4em). Hours and minutes are two small ones: cistercianClock.
+
+### `cistercianClock`
+
+```ts
+cistercianClock(at: number = Date.now(), o: { height?: number } = {}): HTMLElement
+```
+
+A time as two Cistercian numerals, hours then minutes (each 0..59 fits in the stem's two top corners). `at` is epoch ms (default now).
+
 ### `sig.state`
 
 ```ts
@@ -1055,7 +1080,7 @@ Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners,
 ### `frame`
 
 ```ts
-function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean } = true): void
+function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean } = true): void
 ```
 
 The drawing-sheet frame, in the screen margin: registration targets, two corner clusters of sigils (tl, tr),
@@ -1824,6 +1849,14 @@ icon("sun") ... a named icon (size defaults to the surrounding font size). Unkno
 ```ts
 GLYPHS: Record<string, string[]>
 ```
+
+### `CISTERCIAN_UNITS`
+
+```ts
+CISTERCIAN_UNITS: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>>
+```
+
+The strokes of a unit digit 1..9 in the top-right corner, as [x1, y1, x2, y2] with the stem at x = 0 and the corner box 1 wide and 1 tall.
 
 ### `STATE_WIRE`
 

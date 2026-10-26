@@ -1476,6 +1476,47 @@ const giant = (value: Child, o: { size?: number; unit?: string } = {}) =>
 
 /** Sigils for a corner cluster: sig.* values (or the legacy [kind, value] pairs), or a function returning them (re-read at every redraw). */
 type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark | [SigKind, any?])[]);
+// ------------------------------------------------ Cistercian numerals
+// A medieval monastic notation: one vertical stem, and each decimal digit a few strokes in one of its four corners. Units sit top-right, tens
+// top-left (mirrored), hundreds bottom-right (flipped), thousands bottom-left: a number up to 9999 is ONE glyph, and a time is two.
+
+/** The strokes of a unit digit 1..9 in the top-right corner, as [x1, y1, x2, y2] with the stem at x = 0 and the corner box 1 wide and 1 tall. */
+const CISTERCIAN_UNITS: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>> = {
+  1: [[0, 0, 1, 0]],
+  2: [[0, 1, 1, 1]],
+  3: [[0, 0, 1, 1]],
+  4: [[0, 1, 1, 0]],
+  5: [[0, 1, 1, 0], [0, 0, 1, 0]],
+  6: [[1, 0, 1, 1]],
+  7: [[0, 0, 1, 0], [1, 0, 1, 1]],
+  8: [[0, 1, 1, 1], [1, 0, 1, 1]],
+  9: [[0, 0, 1, 0], [0, 1, 1, 1], [1, 0, 1, 1]],
+};
+/**
+ * SVG path data of a Cistercian numeral for 0..9999, in a box 2 wide and 3 tall (x from -1 to 1, y from 0 to 3): the stem, then each
+ * non-zero digit's strokes in its corner (units top-right, tens top-left, hundreds bottom-right, thousands bottom-left).
+ */
+const cistercianPath = (n: number): string => {
+  const v = Math.max(0, Math.min(9999, Math.trunc(n)));
+  let d = "M0 0V3";
+  [v % 10, Math.floor(v / 10) % 10, Math.floor(v / 100) % 10, Math.floor(v / 1000) % 10].forEach((digit, place) => {
+    const sx = place === 1 || place === 3 ? -1 : 1, flip = place >= 2;
+    for (const [x1, y1, x2, y2] of CISTERCIAN_UNITS[digit] ?? []) d += `M${sx * x1} ${flip ? 3 - y1 : y1}L${sx * x2} ${flip ? 3 - y2 : y2}`;
+  });
+  return d;
+};
+/** A Cistercian numeral (0..9999) as an inline mark, `height` px tall (default 1.4em). Hours and minutes are two small ones: cistercianClock. */
+const cistercian = (n: number, o: { height?: number } = {}): HTMLElement => {
+  const hgt = o.height ?? 16, el = h("span", { class: "icon cist", title: String(n) });
+  el.innerHTML = `<svg viewBox="-1.3 -0.3 2.6 3.6" width="${((hgt * 2.6) / 3.6).toFixed(1)}" height="${hgt}" fill="none" stroke="currentColor" stroke-width="0.26" stroke-linecap="square"><path d="${cistercianPath(n)}"/></svg>`;
+  return el;
+};
+/** A time as two Cistercian numerals, hours then minutes (each 0..59 fits in the stem's two top corners). `at` is epoch ms (default now). */
+const cistercianClock = (at: number = Date.now(), o: { height?: number } = {}): HTMLElement => {
+  const d = new Date(at);
+  return h("span", { class: "cistclock" }, cistercian(d.getHours(), o), cistercian(d.getMinutes(), o));
+};
+
 // ------------------------------------------------ typed marks: sigils without strings
 /** A sigil's meaning for a state mark. */
 enum State { Ok, Idle, Warn, Err, Unknown }
@@ -1658,7 +1699,7 @@ function go(id: string, o: { hold?: number } = {}): boolean {
 }
 
 
-let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean } | null = null, frameHooked = false;
+let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean } | null = null, frameHooked = false;
 
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
 function drawFrame(): void {
@@ -1705,6 +1746,12 @@ function drawFrame(): void {
       if (on) marks += `<rect x="${f(x)}" y="${y}" width="${cell}" height="${cell}" fill="currentColor" stroke="none"/>`;
       marks += `<text x="${f(x + cell / 2)}" y="${f(y + 11.4)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font:${on ? 400 : 300} 11.5px var(--sans)">${escHtml(sc.tab)}</text>`;
     });
+    if (frameOpts.clock) {
+      // a small clock beside the tabs: hours and minutes as Cistercian numerals (one glyph each), a colon of two dots between
+      const now = new Date(), u = 4.6, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap) / 2 + 34, gy = 1.5;
+      const glyph = (n: number, x: number) => `<g transform="translate(${f(x)} ${gy}) scale(${u})"><path d="${cistercianPath(n)}" stroke-width="${(1.15 / u).toFixed(3)}" stroke-linecap="square"/></g>`;
+      marks += glyph(now.getHours(), gx + u) + glyph(now.getMinutes(), gx + 3.3 * u) + `<path d="M${f(gx + 2.15 * u)} ${gy + 0.9 * u}h0.01M${f(gx + 2.15 * u)} ${gy + 2.1 * u}h0.01" stroke-width="1.8" stroke-linecap="square"/>`;
+    }
   } else {
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
     marks += txt(tb.x + 7, tb.y + 10.5, "D1", "start");
@@ -1722,7 +1769,7 @@ function drawFrame(): void {
  * column letters (A-F) and row numbers (1-3) matching the tilegrid so every module has an address like "B2",
  * and a terse title block. ui.frame({title, sheet, tl, tr}) turns it on, ui.frame(false) off.
  */
-function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean } = true): void {
+function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean } = true): void {
   frameOpts = opt === false ? null : typeof opt === "object" ? opt : {};
   root.style.paddingBottom = frameOpts?.tabs ? "14px" : "";   // the tabs live in the top margin: the sheet gets the bottom one back
   drawFrame();
@@ -2453,7 +2500,7 @@ realSetTimeout(beatLoop, cadence[Tier.Tick] - (Date.now() % cadence[Tier.Tick]) 
 // The clock is data too: K.time.minute is rewritten once a minute, on the minute, so a clock face binds to it like any feed:
 // feed([K.time.minute, ...], draw, { tier: Minute }) redraws exactly when the minute changes.
 let lastMinute = -1;
-every("ui.time", Tier.Tick, () => { const m = Math.floor(Date.now() / 60000); if (m !== lastMinute) { lastMinute = m; setData(KEY_MINUTE, Date.now()); } });
+every("ui.time", Tier.Tick, () => { const m = Math.floor(Date.now() / 60000); if (m !== lastMinute) { lastMinute = m; setData(KEY_MINUTE, Date.now()); if (frameOpts?.clock) drawFrame(); } });
 
 /** Change the periods (ms), e.g. ui.cadence({ [Tier.Beat]: 60000 }). Jobs re-base so nothing fires in a burst. */
 function setCadence(c: Partial<Record<Tier, number>> = {}): Record<Tier, number> {
@@ -2765,7 +2812,7 @@ const ui = {
 const exported: Record<string, unknown> = {
   ...prims, row, col, grid, box, card, big, heading, divider, badge, stat, list, table, kv, progress,
   bars, sparkline, agenda, weather, md, clock, countdown, live,
-  usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
+  cistercian, cistercianClock, usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
   icon, weatherIcon, say, sunArc, hourly, habitGrid, timerRing, tearoff, note, presence, moon,
   tile, levelTile, dayDial, ruler, statStrip, pills, slider, menu, device, hero,
   panel, meta, claudeLine, tilegrid, dotClock, dayStrip, timeline, areaChart,

@@ -162,7 +162,10 @@
           ["state", "ok"], ["state", "idle"], ["state", "warn"], ["state", "err"], ["state", "?"], ["level", [0, 8]], ["level", [2, 8]], ["level", [4, 8]], ["level", [6, 8]], ["level", [8, 8]],
           ["trend", "up"], ["trend", "down"], ["trend", "flat"], ["trend", "rise"], ["trend", "fall"], ["age", 0], ["age", 15], ["age", 30], ["age", 45], ["age", 90],
           ["count", 1], ["count", 3], ["count", 5], ["count", 6], ["count", 9], ["dir", 0], ["dir", 90], ["dir", 220], ["bars", 1], ["bars", 4],
-        ].map(([k, v]) => col({ class: "center" }, sigil(k, v, 26), small(`${k} ${Array.isArray(v) ? v.join("/") : v}`)))));
+        ].map(([k, v]) => col({ class: "center" }, sigil(k, v, 26), small(`${k} ${Array.isArray(v) ? v.join("/") : v}`)))),
+        divider(),
+        // Cistercian numerals: one stem, up to four digits in its corners (units top-right, tens top-left, hundreds bottom-right, thousands bottom-left)
+        row({ class: "fit" }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 90, 100, 1000, 1982, 2359].map((n) => col({ class: "center" }, cistercian(n, { height: 36 }), small(String(n)))).concat([col({ class: "center" }, cistercianClock(Date.now(), { height: 36 }), small("now"))]));
     },
   };
 

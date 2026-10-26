@@ -225,6 +225,13 @@ declare function band(edge: "top" | "bottom" | "mid", ...a: Arg[]): any;
 declare function giant(value: Child, o?: { size?: number; unit?: string }): any;
 /** Sigils for a corner cluster: sig.* values (or the legacy [kind, value] pairs), or a function returning them (re-read at every redraw). */
 type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark | [SigKind, any?])[]);
+/** SVG path data of a Cistercian numeral for 0..9999, in a box 2 wide and 3 tall (x from -1 to 1, y from 0 to 3): the stem, then each
+ * non-zero digit's strokes in its corner (units top-right, tens top-left, hundreds bottom-right, thousands bottom-left). */
+declare function cistercianPath(n: number): string;
+/** A Cistercian numeral (0..9999) as an inline mark, `height` px tall (default 1.4em). Hours and minutes are two small ones: cistercianClock. */
+declare function cistercian(n: number, o?: { height?: number }): HTMLElement;
+/** A time as two Cistercian numerals, hours then minutes (each 0..59 fits in the stem's two top corners). `at` is epoch ms (default now). */
+declare function cistercianClock(at?: number, o?: { height?: number }): HTMLElement;
 /** A sigil's meaning for a state mark. */
 declare enum State { Ok = 0, Idle = 1, Warn = 2, Err = 3, Unknown = 4 }
 /** A sigil's meaning for a trend mark: slow arrows (Up/Down/Flat) and steep ones (Rise/Fall). */
@@ -274,7 +281,7 @@ declare function drawFrame(): void;
 /** The drawing-sheet frame, in the screen margin: registration targets, two corner clusters of sigils (tl, tr),
  * column letters (A-F) and row numbers (1-3) matching the tilegrid so every module has an address like "B2",
  * and a terse title block. ui.frame({title, sheet, tl, tr}) turns it on, ui.frame(false) off. */
-declare function frame(opt?: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean }): void;
+declare function frame(opt?: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean }): void;
 /** Run fn now and every `ms` while `el` stays mounted (stops once removed). */
 declare function live<T extends Element>(el: T, fn: (el: T) => void, ms: number): T;
 declare function setText(el: Element, t: string): any;
