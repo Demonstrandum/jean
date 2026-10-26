@@ -186,13 +186,25 @@
 
   // ---- navigation (outside the screen): the real screens, then the gallery
   const navEl = document.getElementById("scenenav");
+  const gotoScreen = (n) => fetch(`/screen?name=${encodeURIComponent(n)}&hold=0`, { method: "POST" });   // the server's key: what voice would write
+  const mark = () => navEl.querySelectorAll("a[data-screen]").forEach((a) => a.classList.toggle("on", !sample && a.dataset.screen === ui.current()));
   const link = (label, key, val, on) => {
     const q = new URLSearchParams(); q.set(key, val);
-    const a = document.createElement("a"); a.href = "?" + q; a.textContent = label; if (on) a.className = "on"; navEl.append(a);
+    const a = document.createElement("a"); a.href = "?" + q; a.textContent = label; if (on) a.className = "on";
+    if (key === "screen") {
+      a.dataset.screen = val;
+      // on a real screen the links switch it in place, exactly as the harness would; from a gallery page they open it
+      a.addEventListener("click", (e) => { if (!sample) { e.preventDefault(); gotoScreen(val); } });
+    }
+    navEl.append(a);
   };
   for (const n of ui.screens()) link(n, "screen", n, !sample && n === name);
   const sep = document.createElement("span"); sep.textContent = "|"; sep.style.opacity = ".4"; navEl.append(sep);
   for (const n of Object.keys(scenes)) link(n, "scene", n, n === sample);
+  addEventListener("ui:screen", mark);
+  // 1-7 switch screens too (preview only: the panel itself takes no input)
+  addEventListener("keydown", (e) => { const n = ui.screens()[Number(e.key) - 1]; if (n && !sample && !e.metaKey && !e.ctrlKey) gotoScreen(n); });
+  if (!sample && sp.get("screen")) gotoScreen(sp.get("screen"));   // ?screen=energy wins over whatever the server last showed
 
   // ---- fit indicator: the screen always contains the scene; this says how --------------
   const fitEl = document.createElement("span");

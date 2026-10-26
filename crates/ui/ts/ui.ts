@@ -1440,6 +1440,7 @@ function go(name: string, o: { hold?: number } = {}): boolean {
   const hold = o.hold ?? (data.get("ui.hold")?.v as number | undefined) ?? HOLD_DEFAULT;
   if (name !== homeScreen && hold > 0) returnTimer = realSetTimeout(() => go(homeScreen), hold) as unknown as number;
   if (frameOpts) drawFrame();
+  window.dispatchEvent(new CustomEvent("ui:screen", { detail: name }));
   return true;
 }
 /** Show `name` (or home) unless something is already showing: the page's first paint. */
