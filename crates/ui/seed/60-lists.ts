@@ -1,7 +1,7 @@
 // LISTS: shopping and notes (data/groceries.json and data/notes.json; Claude edits them when asked).
 ui.defineScreen({
   id: "lists",
-  tab: "LISTS",
+  tab: "單",
   tiles: [
     {
       id: "shopping", at: zone(Z.A1, Z.C3), title: "Shopping", glyph: "bag", tone: "list",

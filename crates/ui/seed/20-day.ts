@@ -1,7 +1,7 @@
 // DAY: the day as a route diagram (today while something is still to come, else the next day with events), busy hours, what is next, the sun and moon.
 ui.defineScreen({
   id: "day",
-  tab: "DAY",
+  tab: "日",
   tiles: [
     {
       id: "route", at: zone(Z.A1, Z.F2), title: "Day", glyph: "calendar", tone: "fill",

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "strict": true,
+    "noImplicitAny": true,
+    "types": [
+      "./docs/ui.d.ts"
+    ]
+  },
+  "lint": {
+    "exclude": [
+      "*"
+    ]
+  }
+}

@@ -2,7 +2,7 @@
 // Every live value is a typed key bound with `bind(...)`; a tile is data, so `ui.screenOf("home").patchTile("grid", {...})` changes one.
 ui.defineScreen({
   id: "home",
-  tab: "HOME",
+  tab: "首",
   tiles: [
     {
       id: "day", at: zone(Z.A1, Z.B2), title: "", frameless: true,

@@ -23,10 +23,10 @@ pub const SEEDS: [(&str, &str); 7] = [
     ("10-home.ts", include_str!("../seed/10-home.ts")),
     ("20-day.ts", include_str!("../seed/20-day.ts")),
     ("30-weather.ts", include_str!("../seed/30-weather.ts")),
-    ("40-energy.ts", include_str!("../seed/40-energy.ts")),
-    ("50-lists.ts", include_str!("../seed/50-lists.ts")),
-    ("60-claude.ts", include_str!("../seed/60-claude.ts")),
-    ("70-system.ts", include_str!("../seed/70-system.ts")),
+    ("40-system.ts", include_str!("../seed/40-system.ts")),
+    ("50-energy.ts", include_str!("../seed/50-energy.ts")),
+    ("60-lists.ts", include_str!("../seed/60-lists.ts")),
+    ("70-claude.ts", include_str!("../seed/70-claude.ts")),
 ];
 
 /// Strip TypeScript types from `src` and return plain JS.

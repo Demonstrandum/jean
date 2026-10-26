@@ -1,7 +1,7 @@
 // SYSTEM: the computer itself (feeds/machine.py, net.py, wifi.sh).
 ui.defineScreen({
   id: "system",
-  tab: "SYSTEM",
+  tab: "系",
   tiles: [
     {
       id: "cpu", at: zone(Z.A1, Z.D2), title: "¹ cpu", tone: "legend",

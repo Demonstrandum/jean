@@ -1,7 +1,7 @@
 // WEATHER: now, the next 24 hours, rain by hour, wind, the UV day curve (as the tile's background), air quality.
 ui.defineScreen({
   id: "weather",
-  tab: "WEATHER",
+  tab: "晴",
   tiles: [
     {
       id: "now", at: zone(Z.A1, Z.B2), title: "Now", glyph: "cloud",

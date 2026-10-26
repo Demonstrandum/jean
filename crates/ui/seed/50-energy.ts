@@ -1,7 +1,7 @@
 // ENERGY: the grid's 24-hour carbon forecast against the green line, your unit rate, last full day's usage, the week.
 ui.defineScreen({
   id: "energy",
-  tab: "ENERGY",
+  tab: "能",
   tiles: [
     {
       id: "carbon", at: zone(Z.A1, Z.D2), title: "Clean energy · gCO₂/kWh · next 24 h", glyph: "leaf", tone: "fill",

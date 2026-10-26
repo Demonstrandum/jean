@@ -996,7 +996,7 @@ toneClass(t: TileSpec["tone"]): string | undefined
 ### `resolveBody`
 
 ```ts
-resolveBody<T extends Child>(b: Body<T> | undefined): T | undefined
+resolveBody<T extends Child>(b: Slot<T> | undefined): T | undefined
 ```
 
 ### `tileFrom`
@@ -1223,7 +1223,7 @@ Minutes since a key was last written (Infinity if never): feed sig.age(...) with
 
 ```ts
 function feed<T>(key: Key<T>, render: (v: T | undefined, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement
-function feed<Ks extends readonly Key<any>[]>(keys: Ks, render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement
+function feed<Ks extends Key<any>[]>(keys: readonly [...Ks], render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement
 function feed(keys: Key<any> | readonly Key<any>[], render: (v: any, meta: FeedMeta) => Child, o: FeedOptions = {}): HTMLElement
 ```
 
@@ -1234,7 +1234,7 @@ With a list of keys the render gets a tuple of their values. The first value for
 
 ```ts
 function bind<T>(key: Key<T>, render: (v: T | undefined, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement
-function bind<Ks extends readonly Key<any>[]>(keys: Ks, render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement
+function bind<Ks extends Key<any>[]>(keys: readonly [...Ks], render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement
 function bind(keys: any, render: any, o?: FeedOptions): () => HTMLElement
 ```
 
@@ -1742,6 +1742,15 @@ calendar.over(e: CalEvent, at: Ms): boolean
 
 Whether an event is over at `at`.
 
+### `calendar.lanes`
+
+```ts
+calendar.lanes(events: readonly CalEvent[]): CalEvent[][]
+```
+
+Pack events into lanes so that none overlap within a lane (the first lane takes what it can, the next takes what is left): the rows
+of a route diagram. Events that only touch (one ends as the next starts) share a lane.
+
 ### `calendar.when`
 
 ```ts
@@ -1783,6 +1792,12 @@ shell(): void
 Set up the frame: registration marks, live sigils in the corners (left = the machine, right = the world) and the tab bar.
 
 ## Values and namespaces
+
+### `tags`
+
+```ts
+tags
+```
 
 ### `prims`
 
@@ -1833,7 +1848,7 @@ Typed constructors for sigils: sig.state(State.Ok), sig.level(7, 8), sig.trend(T
 ### `Z`
 
 ```ts
-Z
+Z: Record<CellName, Cell>
 ```
 
 Every cell as a constant: Z.A1 ... Z.F3.
@@ -1871,7 +1886,7 @@ cadence: Record<Tier, number>
 ### `Minute`
 
 ```ts
-Minute
+Minute: number
 ```
 
 One minute in ms: a period that redraws exactly when the minute changes.
@@ -2110,10 +2125,10 @@ type CellName = `${keyof typeof Col}${Row}`
 
 The names Z.A1 ... Z.F3 (a type for the typed constants below).
 
-### `Body`
+### `Slot`
 
 ```ts
-type Body<T extends Child = Child> = T | (() => T)
+type Slot<T extends Child = Child> = T | (() => T)
 ```
 
 What a tile region holds: any child, or a function making it when the screen is built.
@@ -2138,9 +2153,9 @@ interface TileSpec
 - `readonly glyph?: IconName;`
 - `readonly tone?: TileTone | readonly TileTone[];`
 - `readonly inverted?: boolean;`
-- `readonly body?: Body;`
-- `readonly count?: Body;`
-- `readonly back?: Body<Node>;`
+- `readonly body?: Slot;`
+- `readonly count?: Slot;`
+- `readonly back?: Slot<Node>;`
 - `readonly waves?: boolean | Parameters<typeof waves>[0];`
 - `readonly frameless?: boolean;`
 
@@ -2264,7 +2279,7 @@ interface Job
 ### `Key`
 
 ```ts
-interface Key
+interface Key<T>
 ```
 
 A typed handle on one live value. `id` is the wire name feeds write; T is what the value is; `sample` is a fixture the self-test shows.
@@ -2640,6 +2655,30 @@ Load averages over their history windows, as series.
 
 ## Live data keys
 
+### `K.time.minute`
+
+```ts
+K.time.minute: Key<Ms>
+```
+
+### `K.ui.screen`
+
+```ts
+K.ui.screen: Key<string>
+```
+
+### `K.ui.hold`
+
+```ts
+K.ui.hold: Key<number>
+```
+
+### `K.link.server`
+
+```ts
+K.link.server: Key<number>
+```
+
 ### `K.cpu.total`
 
 ```ts
@@ -2673,7 +2712,7 @@ Number of CPU cores.
 ### `K.cpu.cores`
 
 ```ts
-K.cpu.cores: Key<Record<string, number[]>
+K.cpu.cores: Key<Record<string, number[]>>
 ```
 
 Per-core use histories (0..1), by core name; Linux only.

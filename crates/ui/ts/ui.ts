@@ -1536,7 +1536,7 @@ const zonesOverlap = (a: Zone, b: Zone): boolean => a.from.col <= b.to.col && b.
 // `body`, `count` and `back` may be functions: they run when the screen is built (so live bindings are made fresh each time).
 
 /** What a tile region holds: any child, or a function making it when the screen is built. */
-type Body<T extends Child = Child> = T | (() => T);
+type Slot<T extends Child = Child> = T | (() => T);
 /** How a tile is dressed: fill = its body stretches, list = ruled rows, legend = title on the border, iconic = centred icon, usage = filled to a history curve. */
 type TileTone = "fill" | "list" | "legend" | "iconic" | "usage";
 interface TileSpec {
@@ -1547,11 +1547,11 @@ interface TileSpec {
   readonly glyph?: IconName;
   readonly tone?: TileTone | readonly TileTone[];
   readonly inverted?: boolean;
-  readonly body?: Body;
+  readonly body?: Slot;
   /** The line under the body. */
-  readonly count?: Body;
+  readonly count?: Slot;
   /** A layer behind the whole tile (a curve, a gradient). */
-  readonly back?: Body<Node>;
+  readonly back?: Slot<Node>;
   readonly waves?: boolean | Parameters<typeof waves>[0];
   /** No tile chrome (no border, title or count): just the body, centred in its zone. */
   readonly frameless?: boolean;
@@ -1582,7 +1582,7 @@ const touchedScreens = new Set<string>();
 const HOLD_DEFAULT = 120_000;
 
 const toneClass = (t: TileSpec["tone"]): string | undefined => (t === undefined ? undefined : Array.isArray(t) ? t.join(" ") : (t as string));
-const resolveBody = <T extends Child>(b: Body<T> | undefined): T | undefined => (typeof b === "function" ? (b as () => T)() : b);
+const resolveBody = <T extends Child>(b: Slot<T> | undefined): T | undefined => (typeof b === "function" ? (b as () => T)() : b);
 
 /** Make one tile from its spec. */
 const tileFrom = (s: TileSpec): HTMLElement => {
@@ -1697,17 +1697,14 @@ function drawFrame(): void {
   const tb = { x: 24, y: hh - 22, w: w - 48, h: 15 };
   const tabs = frameOpts.tabs ? [...screenDefs.values()].filter((sc) => sc.tab) : [];
   if (tabs.length) {
-    // the screens you can ask for, as tabs along the bottom: the current one inverted. Display only: say "show energy".
-    const clockW = 66, cw = (tb.w - clockW) / tabs.length;
-    d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${f(tb.x + tb.w - clockW)} ${tb.y}v${tb.h}`;
+    // the screens you can ask for, one glyph each, compact in the top margin between the corner clusters; the current one on a solid square.
+    // Display only: say "show energy". (The layer is blended with "difference": the white square shows black, and black text on it shows white.)
+    const cell = 15, gap = 3, x0 = (w - (tabs.length * cell + (tabs.length - 1) * gap)) / 2, y = 1;
     tabs.forEach((sc, i) => {
-      const x = tb.x + i * cw, on = sc.id === currentScreen;
-      if (i) d += `M${f(x)} ${tb.y}v${tb.h}`;
-      // the layer is blended with "difference": white shows black, and black text on the white block shows white on black
-      if (on) marks += `<rect x="${f(x)}" y="${tb.y}" width="${f(cw)}" height="${tb.h}" fill="currentColor" stroke="none"/>`;
-      marks += `<text x="${f(x + cw / 2)}" y="${f(tb.y + 10.5)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font-weight:${on ? 700 : 500}">${i + 1} ${escHtml(sc.tab)}</text>`;
+      const x = x0 + i * (cell + gap), on = sc.id === currentScreen;
+      if (on) marks += `<rect x="${f(x)}" y="${y}" width="${cell}" height="${cell}" fill="currentColor" stroke="none"/>`;
+      marks += `<text x="${f(x + cell / 2)}" y="${f(y + 11.4)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font:${on ? 700 : 500} 11.5px var(--sans)">${escHtml(sc.tab)}</text>`;
     });
-    marks += txt(tb.x + tb.w - clockW / 2, tb.y + 10.5, clock);
   } else {
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
     marks += txt(tb.x + 7, tb.y + 10.5, "D1", "start");
@@ -1727,6 +1724,7 @@ function drawFrame(): void {
  */
 function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean } = true): void {
   frameOpts = opt === false ? null : typeof opt === "object" ? opt : {};
+  root.style.paddingBottom = frameOpts?.tabs ? "14px" : "";   // the tabs live in the top margin: the sheet gets the bottom one back
   drawFrame();
   if (!frameHooked) {
     frameHooked = true;
@@ -2400,7 +2398,7 @@ type Values<Ks extends readonly Key<any>[]> = { [I in keyof Ks]: Ks[I] extends K
  * With a list of keys the render gets a tuple of their values. The first value for an empty binding is drawn at the next second.
  */
 function feed<T>(key: Key<T>, render: (v: T | undefined, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement;
-function feed<Ks extends readonly Key<any>[]>(keys: Ks, render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement;
+function feed<Ks extends Key<any>[]>(keys: readonly [...Ks], render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement;
 function feed(keys: Key<any> | readonly Key<any>[], render: (v: any, meta: FeedMeta) => Child, o: FeedOptions = {}): HTMLElement {
   const list = (Array.isArray(keys) ? keys : [keys]) as Key<any>[], ids = list.map((k) => k.id), tier = o.tier ?? Tier.Beat;
   const el = h("span", { class: "feed" });
@@ -2417,7 +2415,7 @@ function feed(keys: Key<any> | readonly Key<any>[], render: (v: any, meta: FeedM
 }
 /** The same as feed, as a function that makes the binding when called: a tile's body, count or back is built fresh with each screen build. */
 function bind<T>(key: Key<T>, render: (v: T | undefined, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement;
-function bind<Ks extends readonly Key<any>[]>(keys: Ks, render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement;
+function bind<Ks extends Key<any>[]>(keys: readonly [...Ks], render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement;
 function bind(keys: any, render: any, o?: FeedOptions): () => HTMLElement { return () => feed(keys, render, o); }
 
 function applyFeeds(now: number): number {
@@ -2726,7 +2724,7 @@ FIT             nothing can scroll or clip: the scene is scaled to fit; tiles wh
 FALLBACK        ui.h(tag, ...args) and the DOM are always there; lenses: el.words[1] = bold("x"), el.words.wrap(1, mark), el.chars, el.sentences.`;
 
 const ui = {
-  root, screen, h, rev: () => rev, mount, get, outline, eink, dither, rasterize,
+  root, screen, h, rev: () => rev, mount, outline, eink, dither, rasterize,
   /** The scene as HTML: what the store keeps as its snapshot cache. */
   snapshot: () => root.innerHTML.replace(/ data-dropped=""/g, ""), // the fit marker is derived state, not content
   /** Replace the whole scene. Returns the fit report: a scene that doesn't fit must not be shown. */

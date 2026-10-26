@@ -42,6 +42,8 @@ pub struct DocItem {
     pub members: Vec<String>,
     pub global: bool,
     pub line: usize,
+    /// The declaration in `.d.ts` form (functions, and the method form for members of a namespace object).
+    pub dts: String,
 }
 
 impl DocItem {
@@ -115,6 +117,37 @@ fn params_of(cx: &Ctx, ps: &FormalParameters) -> Vec<DocParam> {
         .collect()
 }
 
+/// `(a: T, b?: U, ...rest: V[])` for a declaration file: defaults become optional, patterns get positional names.
+fn params_dts(cx: &Ctx, ps: &FormalParameters) -> String {
+    let mut out: Vec<String> = ps
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let name = match &p.pattern {
+                BindingPattern::BindingIdentifier(id) => id.name.to_string(),
+                _ => format!("a{i}"),
+            };
+            let ty = p.type_annotation.as_ref().map(|t| squash(cx.span_text(t.type_annotation.span()))).unwrap_or_else(|| "any".into());
+            let opt = if p.optional || p.initializer.is_some() { "?" } else { "" };
+            format!("{name}{opt}: {ty}")
+        })
+        .collect();
+    if let Some(r) = &ps.rest {
+        let name = match &r.rest.argument {
+            BindingPattern::BindingIdentifier(id) => id.name.to_string(),
+            _ => "rest".into(),
+        };
+        let ty = r.type_annotation.as_ref().map(|t| squash(cx.span_text(t.type_annotation.span()))).unwrap_or_else(|| "any[]".into());
+        out.push(format!("...{name}: {ty}"));
+    }
+    out.join(", ")
+}
+
+fn type_params_text(cx: &Ctx, tp: &Option<oxc::allocator::Box<'_, TSTypeParameterDeclaration<'_>>>) -> String {
+    tp.as_ref().map(|t| squash(cx.span_text(t.span))).unwrap_or_default()
+}
+
 fn returns_of(cx: &Ctx, rt: &Option<oxc::allocator::Box<'_, TSTypeAnnotation<'_>>>) -> String {
     rt.as_ref().map(|t| squash(cx.span_text(t.type_annotation.span()))).unwrap_or_default()
 }
@@ -138,13 +171,15 @@ fn visit_object(cx: &mut Ctx, prefix: &str, obj: &ObjectExpression, line_of: u32
             Expression::ArrowFunctionExpression(f) => {
                 let sig = squash(cx.text(prop.key.span().start, f.body.span.start)).trim_end_matches("=>").trim().replace(": (", "(").to_string();
                 let sig = format!("{name}{}", sig.trim_start_matches(&*key).trim_start_matches(':').trim_start());
-                let item = DocItem { name, kind: DocKind::Function, signature: sig, doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, line: cx.line(prop.span.start) };
+                let ret = { let r = returns_of(cx, &f.return_type); if r.is_empty() { "any".to_string() } else { r } };
+                let mut item = DocItem { name, kind: DocKind::Function, signature: sig, doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, dts: String::new(), line: cx.line(prop.span.start) };
+                item.dts = format!("{key}{}({}): {ret};", type_params_text(cx, &f.type_parameters), params_dts(cx, &f.params));
                 push(cx, item);
             }
             Expression::ObjectExpression(inner) => visit_object(cx, &name, inner, prop.span.start),
             _ => {
                 if !doc.is_empty() {
-                    let item = DocItem { name, kind: DocKind::Value, signature: squash(cx.span_text(prop.span)), doc, params: vec![], returns: String::new(), members: vec![], global: false, line: cx.line(prop.span.start) };
+                    let item = DocItem { name, kind: DocKind::Value, signature: squash(cx.span_text(prop.span)), doc, params: vec![], returns: String::new(), members: vec![], global: false, dts: String::new(), line: cx.line(prop.span.start) };
                     push(cx, item);
                 }
             }
@@ -159,7 +194,7 @@ fn visit_object(cx: &mut Ctx, prefix: &str, obj: &ObjectExpression, line_of: u32
 
 /// The type arguments of a call like `ui.key<number>(...)`, as written.
 fn type_args_text(cx: &Ctx, call: &CallExpression) -> String {
-    call.type_arguments.as_ref().map(|t| squash(cx.span_text(t.span)).trim_start_matches('<').trim_end_matches('>').to_string()).unwrap_or_default()
+    call.type_arguments.as_ref().map(|t| { let x = squash(cx.span_text(t.span)); x.strip_prefix('<').and_then(|y| y.strip_suffix('>')).unwrap_or(&x).to_string() }).unwrap_or_default()
 }
 
 fn string_arg(call: &CallExpression, i: usize) -> Option<String> {
@@ -180,10 +215,15 @@ fn visit_keys(cx: &mut Ctx, prefix: &str, obj: &ObjectExpression) {
             Expression::CallExpression(call) => {
                 let (Some(id), Some(doc)) = (string_arg(call, 0), string_arg(call, 1)) else { continue };
                 let ty = type_args_text(cx, call);
-                let item = DocItem { name, kind: DocKind::Key, signature: format!("{prefix}.{key}: Key<{ty}>"), doc, params: vec![], returns: ty, members: vec![format!("id: {id}")], global: false, line: cx.line(prop.span.start) };
+                let item = DocItem { name, kind: DocKind::Key, signature: format!("{prefix}.{key}: Key<{ty}>"), doc, params: vec![], returns: ty, members: vec![format!("id: {id}")], global: false, dts: String::new(), line: cx.line(prop.span.start) };
                 push(cx, item);
             }
-            Expression::TSAsExpression(_) => {} // aliases of the kit's own keys (time, ui, link)
+            Expression::TSAsExpression(a) => {
+                // the kit's own keys, re-exported under K (time, ui, link)
+                let ty = squash(cx.span_text(a.type_annotation.span()));
+                let item = DocItem { name, kind: DocKind::Key, signature: format!("{prefix}.{key}: {ty}"), doc: cx.doc_at(prop.span.start), params: vec![], returns: ty, members: vec![], global: false, dts: String::new(), line: cx.line(prop.span.start) };
+                push(cx, item);
+            }
             _ => {}
         }
     }
@@ -198,6 +238,7 @@ fn visit_statements(cx: &mut Ctx, body: &[Statement]) {
                 let sig = squash(cx.text(f.span.start, end)).trim_end_matches(';').trim().to_string();
                 let doc = cx.doc_at(f.span.start);
                 let name = id.name.to_string();
+                let fdts = format!("declare function {name}{}({}): {};", type_params_text(cx, &f.type_parameters), params_dts(cx, &f.params), { let r = returns_of(cx, &f.return_type); if r.is_empty() { "any".to_string() } else { r } });
                 // overload signatures (no body) are folded into the implementation's entry
                 if let Some(prev) = cx.items.iter_mut().rev().find(|i| i.name == name && i.kind == DocKind::Function && i.line > 0) {
                     if f.body.is_none() || prev.signature.contains('\n') || prev.doc.is_empty() {
@@ -205,13 +246,14 @@ fn visit_statements(cx: &mut Ctx, body: &[Statement]) {
                         if prev.doc.is_empty() {
                             prev.doc = doc;
                         }
-                        if f.body.is_some() {
-                            continue;
+                        if f.body.is_none() {
+                            prev.dts = format!("{}\n{}", prev.dts, fdts); // the implementation signature is not part of the declared API
                         }
                         continue;
                     }
                 }
-                let item = DocItem { name, kind: DocKind::Function, signature: sig, doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, line: cx.line(f.span.start) };
+                let mut item = DocItem { name, kind: DocKind::Function, signature: sig, doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, dts: String::new(), line: cx.line(f.span.start) };
+                item.dts = fdts;
                 push(cx, item);
             }
             Statement::VariableDeclaration(vd) => {
@@ -224,11 +266,13 @@ fn visit_statements(cx: &mut Ctx, body: &[Statement]) {
                         Some(Expression::ArrowFunctionExpression(f)) => {
                             let head = squash(cx.text(f.span.start, f.body.span.start));
                             let head = head.trim_end_matches("=>").trim();
-                            let item = DocItem { name: name.clone(), kind: DocKind::Function, signature: format!("{name}{}", head.strip_prefix("async").map(|s| format!(" async{s}")).unwrap_or_else(|| head.to_string())), doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, line };
+                            let ret = { let r = returns_of(cx, &f.return_type); if r.is_empty() { "any".to_string() } else { r } };
+                            let mut item = DocItem { name: name.clone(), kind: DocKind::Function, signature: format!("{name}{}", head.strip_prefix("async").map(|s| format!(" async{s}")).unwrap_or_else(|| head.to_string())), doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, dts: String::new(), line };
+                            item.dts = format!("declare function {name}{}({}): {ret};", type_params_text(cx, &f.type_parameters), params_dts(cx, &f.params));
                             push(cx, item);
                         }
                         Some(Expression::FunctionExpression(f)) => {
-                            let item = DocItem { name: name.clone(), kind: DocKind::Function, signature: format!("{name}{}", squash(cx.text(f.params.span.start, f.body.as_ref().map(|b| b.span.start).unwrap_or(f.span.end)))), doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, line };
+                            let item = DocItem { name: name.clone(), kind: DocKind::Function, signature: format!("{name}{}", squash(cx.text(f.params.span.start, f.body.as_ref().map(|b| b.span.start).unwrap_or(f.span.end)))), doc, params: params_of(cx, &f.params), returns: returns_of(cx, &f.return_type), members: vec![], global: false, dts: String::new(), line };
                             push(cx, item);
                         }
                         Some(Expression::ObjectExpression(obj)) if name == "K" => visit_keys(cx, "K", obj),
@@ -244,14 +288,31 @@ fn visit_statements(cx: &mut Ctx, body: &[Statement]) {
                                 continue;
                             }
                             let ty = d.type_annotation.as_ref().map(|t| format!(": {}", squash(cx.span_text(t.type_annotation.span())))).unwrap_or_default();
-                            let item = DocItem { name: name.clone(), kind: DocKind::Value, signature: format!("{name}{ty}"), doc, params: vec![], returns: String::new(), members: vec![], global: false, line };
+                            let item = DocItem { name: name.clone(), kind: DocKind::Value, signature: format!("{name}{ty}"), doc, params: vec![], returns: String::new(), members: vec![], global: false, dts: String::new(), line };
                             push(cx, item);
                             visit_object(cx, &name, obj, vd.span.start);
                         }
                         _ => {
-                            let ty = d.type_annotation.as_ref().map(|t| format!(": {}", squash(cx.span_text(t.type_annotation.span())))).unwrap_or_default();
+                            let as_ty = match &d.init {
+                                Some(Expression::TSAsExpression(a)) => Some(squash(cx.span_text(a.type_annotation.span()))),
+                                Some(Expression::NumericLiteral(_)) => Some("number".to_string()),
+                                Some(Expression::StringLiteral(_)) => Some("string".to_string()),
+                                Some(Expression::BooleanLiteral(_)) => Some("boolean".to_string()),
+                                _ => None,
+                            };
+                            let unwrapped = match &d.init { Some(Expression::TSAsExpression(a)) => Some(&a.expression), Some(e) => Some(e), None => None };
+                            if let Some(Expression::ArrayExpression(arr)) = unwrapped {
+                                // a list of names (the HTML tag helpers): kept as members, for the declaration file
+                                let names: Vec<String> = arr.elements.iter().filter_map(|e| if let ArrayExpressionElement::StringLiteral(l) = e { Some(l.value.to_string()) } else { None }).collect();
+                                if !names.is_empty() {
+                                    let item = DocItem { name: name.clone(), kind: DocKind::Value, signature: name.clone(), doc: doc.clone(), params: vec![], returns: String::new(), members: names, global: false, dts: String::new(), line };
+                                    push(cx, item);
+                                    continue;
+                                }
+                            }
+                            let ty = d.type_annotation.as_ref().map(|t| format!(": {}", squash(cx.span_text(t.type_annotation.span())))).or(as_ty.map(|t| format!(": {t}"))).unwrap_or_default();
                             if !doc.is_empty() {
-                                let item = DocItem { name: name.clone(), kind: DocKind::Value, signature: format!("{name}{ty}"), doc, params: vec![], returns: String::new(), members: vec![], global: false, line };
+                                let item = DocItem { name: name.clone(), kind: DocKind::Value, signature: format!("{name}{ty}"), doc, params: vec![], returns: String::new(), members: vec![], global: false, dts: String::new(), line };
                                 push(cx, item);
                             }
                         }
@@ -260,11 +321,11 @@ fn visit_statements(cx: &mut Ctx, body: &[Statement]) {
             }
             Statement::TSInterfaceDeclaration(i) => {
                 let members = i.body.body.iter().map(|m| squash(cx.span_text(m.span()))).collect();
-                let item = DocItem { name: i.id.name.to_string(), kind: DocKind::Interface, signature: format!("interface {}", i.id.name), doc: cx.doc_at(i.span.start), params: vec![], returns: String::new(), members, global: false, line: cx.line(i.span.start) };
+                let item = DocItem { name: i.id.name.to_string(), kind: DocKind::Interface, signature: format!("interface {}{}", i.id.name, type_params_text(cx, &i.type_parameters)), doc: cx.doc_at(i.span.start), params: vec![], returns: String::new(), members, global: false, dts: String::new(), line: cx.line(i.span.start) };
                 push(cx, item);
             }
             Statement::TSTypeAliasDeclaration(t) => {
-                let item = DocItem { name: t.id.name.to_string(), kind: DocKind::Type, signature: squash(cx.span_text(t.span)).trim_end_matches(';').to_string(), doc: cx.doc_at(t.span.start), params: vec![], returns: String::new(), members: vec![], global: false, line: cx.line(t.span.start) };
+                let item = DocItem { name: t.id.name.to_string(), kind: DocKind::Type, signature: squash(cx.span_text(t.span)).trim_end_matches(';').to_string(), doc: cx.doc_at(t.span.start), params: vec![], returns: String::new(), members: vec![], global: false, dts: String::new(), line: cx.line(t.span.start) };
                 push(cx, item);
             }
             Statement::TSEnumDeclaration(e) => {
@@ -286,7 +347,7 @@ fn visit_statements(cx: &mut Ctx, body: &[Statement]) {
                     }
                     next += 1;
                 }
-                let item = DocItem { name: e.id.name.to_string(), kind: DocKind::Enum, signature: format!("enum {}", e.id.name), doc: cx.doc_at(e.span.start), params: vec![], returns: String::new(), members, global: false, line: cx.line(e.span.start) };
+                let item = DocItem { name: e.id.name.to_string(), kind: DocKind::Enum, signature: format!("enum {}", e.id.name), doc: cx.doc_at(e.span.start), params: vec![], returns: String::new(), members, global: false, dts: String::new(), line: cx.line(e.span.start) };
                 push(cx, item);
             }
             Statement::ExpressionStatement(es) => {
@@ -381,6 +442,96 @@ pub fn markdown(items: &[DocItem]) -> String {
             }
         }
     }
+    out
+}
+
+/// A TypeScript declaration file for the whole kit (the globals an eval can use), generated from the same extraction as the reference.
+/// Checking agent code against it is `deno check` / `tsc --noEmit`.
+pub fn dts(items: &[DocItem], source: &str) -> String {
+    let mut out = String::from("// Generated from crates/ui/ts/ui.ts and schema.ts by `cargo run -p ui --bin gen-docs`: do not edit.\n// The globals available to an eval on the display page.\n\n");
+    let doc_comment = |d: &str| if d.is_empty() { String::new() } else { format!("/** {} */\n", d.replace("*/", "* /").replace('\n', "\n * ")) };
+    let declared: std::collections::HashSet<&str> = items.iter().filter(|i| matches!(i.kind, DocKind::Function | DocKind::Enum)).map(|i| i.name.as_str()).collect();
+    let icon_names: Vec<String> = items.iter().find(|i| i.name == "ICON_PATHS").map(|i| i.members.clone()).unwrap_or_default();
+    for it in items {
+        match it.kind {
+            DocKind::Function if !it.name.contains('.') && !it.dts.is_empty() => {
+                for line in it.dts.lines() {
+                    out.push_str(&doc_comment(&it.doc));
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            DocKind::Enum => {
+                out.push_str(&doc_comment(&it.doc));
+                out.push_str(&format!("declare enum {} {{ {} }}\n", it.name, it.members.join(", ")));
+            }
+            DocKind::Interface => {
+                out.push_str(&doc_comment(&it.doc));
+                let head = it.signature.trim_start_matches("interface ").to_string();
+                out.push_str(&format!("interface {head} {{ {} }}\n", it.members.join(" ")));
+            }
+            DocKind::Type => {
+                out.push_str(&doc_comment(&it.doc));
+                if it.name == "IconName" && !icon_names.is_empty() {
+                    out.push_str(&format!("type IconName = {};\n", icon_names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(" | ")));
+                } else {
+                    out.push_str(&format!("{};\n", it.signature.trim_end_matches(';')));
+                }
+            }
+            _ => {}
+        }
+    }
+    // the HTML tag helpers (div, span, ...) are installed from a list of names
+    if let Some(tags) = items.iter().find(|i| i.name == "tags" && i.kind == DocKind::Value) {
+        for t in tags.members.iter().map(|s| s.as_str()).chain(["bold", "italic"]) {
+            out.push_str(&format!("declare function {t}(...a: Arg[]): HTMLElement;\n"));
+        }
+    }
+    // namespaces: a const whose members are functions (fmt, label, calendar, series, sig, ...)
+    let mut spaces: Vec<&DocItem> = items.iter().filter(|i| i.kind == DocKind::Value && !i.members.is_empty() && i.name != "ICON_PATHS" && i.name != "ui" && i.name != "tags").collect();
+    spaces.sort_by_key(|i| i.line);
+    for ns in spaces {
+        let methods: Vec<String> = items.iter().filter(|m| m.kind == DocKind::Function && m.name.starts_with(&format!("{}.", ns.name)) && m.name.matches('.').count() == 1 && !m.dts.is_empty()).map(|m| format!("{}{}", doc_comment(&m.doc), m.dts)).collect();
+        if !methods.is_empty() {
+            out.push_str(&doc_comment(&ns.doc));
+            out.push_str(&format!("declare const {}: {{\n{}\n}};\n", ns.name, methods.join("\n")));
+        }
+    }
+    // other documented values with a written type
+    for it in items.iter().filter(|i| i.kind == DocKind::Value && i.members.is_empty() && i.signature.contains(": ") && !i.name.contains('.')) {
+        out.push_str(&format!("declare const {};\n", it.signature));
+    }
+    // the typed keys, as the nested constant K
+    let mut tree: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> = Default::default();
+    for it in items.iter().filter(|i| i.kind == DocKind::Key) {
+        let parts: Vec<&str> = it.name.split('.').collect();
+        if parts.len() == 3 {
+            tree.entry(parts[1].to_string()).or_default().insert(parts[2].to_string(), it.returns.clone());
+        }
+    }
+    if !tree.is_empty() {
+        out.push_str("declare const K: {\n");
+        for (group, keys) in &tree {
+            let fields: Vec<String> = keys.iter().map(|(k, t)| format!("{k}: {}", if t.starts_with("Key<") { t.clone() } else { format!("Key<{t}>") })).collect();
+            out.push_str(&format!("  {group}: {{ {} }};\n", fields.join("; ")));
+        }
+        out.push_str("};\n");
+    }
+    // the ui object: what the REPL calls `ui.*`
+    if let Some(ui) = items.iter().find(|i| i.name == "ui" && i.kind == DocKind::Value) {
+        let mut members = Vec::new();
+        for m in &ui.members {
+            let method = items.iter().find(|i| i.name == format!("ui.{m}") && !i.dts.is_empty());
+            let line = match method {
+                Some(f) => format!("  {}", f.dts),
+                None if declared.contains(m.as_str()) => format!("  {m}: typeof {m};"),
+                None => format!("  {m}: any;"),
+            };
+            members.push(line);
+        }
+        out.push_str(&format!("declare const ui: {{\n{}\n}};\n", members.join("\n")));
+    }
+    let _ = source;
     out
 }
 

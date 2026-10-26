@@ -19,6 +19,7 @@
 mod feeds;
 mod fontkey;
 mod hub;
+mod typecheck;
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -458,7 +459,28 @@ fn handle(app: &Arc<App>, mut req: Request) {
             });
             reply(req, 200, json!({ "ok": true, "sid": sid }))
         }
+        (false, "/types.d.ts") => text(req, 200, "text/plain; charset=utf-8", ui::docs::dts(&doc_items(app), ui::SOURCE)),
+        (true, "/check") => {
+            // type-check a snippet against the kit's declarations, as a continuation of the accepted journal: {ok, available, diagnostics}
+            if !typecheck::available() {
+                return reply(req, 200, json!({ "ok": true, "available": false, "diagnostics": [] }));
+            }
+            match type_errors(app, &body) {
+                Ok(d) => reply(req, 200, json!({ "ok": d.is_empty(), "available": true, "diagnostics": d.iter().map(|x| x.to_json()).collect::<Vec<_>>() })),
+                Err(e) => reply(req, 500, json!({ "ok": false, "error": e })),
+            }
+        }
         (true, "/eval") => {
+            // a change is type-checked first (when deno is installed; ?check=0 skips it): a type error is a rejection, nothing runs
+            if query_param(query, "check").as_deref() != Some("0") && typecheck::available() {
+                match type_errors(app, &body) {
+                    Ok(d) if !d.is_empty() => {
+                        return reply(req, 422, json!({ "ok": false, "rejected": true, "error": "type errors", "diagnostics": d.iter().map(|x| x.to_json()).collect::<Vec<_>>() }));
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("type check unavailable: {e}"),
+                }
+            }
             let meta = Meta {
                 intent: query_param(query, "intent"),
                 utterance: query_param(query, "utterance"),
@@ -517,6 +539,12 @@ fn eval_inner(app: &App, source: &str, mut meta: Meta) -> (u16, Value) {
             (503, json!({ "ok": false, "error": e }))
         }
     }
+}
+
+/// Type errors in `snippet`, as a continuation of everything the journal has accepted.
+fn type_errors(app: &App, snippet: &str) -> Result<Vec<typecheck::Diagnostic>, String> {
+    let context: Vec<String> = app.store.tail().map_err(|e| e.to_string())?.into_iter().map(|e| e.source).collect();
+    typecheck::check(&ui::docs::dts(&doc_items(app), ui::SOURCE), &context, snippet)
 }
 
 /// The shipped screens as `(file, TypeScript)`: from the source tree when it exists (edit and reload), else compiled in.

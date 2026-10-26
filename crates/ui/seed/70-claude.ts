@@ -1,7 +1,7 @@
 // CLAUDE: what it heard, what it said, and any timer. The harness writes K.claude.* and K.timer.* through POST /push.
 ui.defineScreen({
   id: "claude",
-  tab: "CLAUDE",
+  tab: "腦",
   tiles: [
     {
       id: "heard", at: zone(Z.A1, Z.F1), title: "You asked", glyph: "sparkle", tone: "fill",
