@@ -65,6 +65,7 @@
   let superseded = false;
   async function worker() {
     await ui.ready();   // layout depends on the fonts: never measure before they are loaded
+    ui.shell();         // the real screens and their tab bar (HOME first); a journaled scene, if any, replaces it on replay
     const { sid } = await (await post("/hello")).json();   // this page is now the only session
     for (;;) {
       let cmd;

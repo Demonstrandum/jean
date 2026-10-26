@@ -9,6 +9,7 @@ machine it runs on.
 * `crates/store`: the event-sourced journal (a git repo of evals and snapshots), replayed on restart.
 * `crates/preview`: the server: serves the pages, bridges `/eval` and `/query` to the page, follows live data (`/sub`, `/push`), runs
   `feeds/` scripts and named `commands/`.
+* `crates/ui/ts/screens.ts`: the real screens (HOME DAY WEATHER ENERGY LISTS CLAUDE SYSTEM) and the tab bar; `crates/preview/static/index.html` is the gallery of sample layouts.
 * `feeds/`, `commands/`, `data/`: the scripts and files the agent edits (machine, network, Wi-Fi, weather, Octopus, carbon, Google Calendar).
 * `nix/`, `flake.nix`: a NixOS module (server + optional kiosk browser). Not yet built or booted.
 
@@ -20,7 +21,7 @@ mkdir secrets && $EDITOR secrets/secrets.json # optional: octopus {account, api_
 cargo run -p preview                          # http://127.0.0.1:8788 (scenes) and /live (the REPL-driven display)
 ```
 
-Docs: [live data and the refresh clock](docs/live-data.md), [persistence](docs/persistence.md), [autonomy](docs/autonomy.md).
+Docs: [screens and the tab bar](docs/screens.md), [live data and the refresh clock](docs/live-data.md), [persistence](docs/persistence.md), [autonomy](docs/autonomy.md).
 
 ## Fonts
 

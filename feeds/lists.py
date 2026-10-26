@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The shopping list from data/groceries.json (Claude edits it on request); the calendar is feeds/calendar.py.
-Keys: shop.items ([{text, qty, done}]) shop.open (count not done)"""
+Keys: shop.items ([{text, qty, done}]) shop.open (count not done); notes.items ([{text, due}]) notes.open, from data/notes.json."""
 import datetime, json, os, time, zoneinfo
 from _lib import ROOT, config, put, log
 
@@ -53,13 +53,21 @@ def shopping():
     return {"shop.items": items, "shop.open": sum(1 for i in items if not i["done"])}
 
 
+def notes():
+    n = load("notes.json")
+    if n is None:
+        return {}
+    items = [{"text": i["text"], "due": i.get("due", "")} for i in n.get("items", []) if not i.get("done")]
+    return {"notes.items": items, "notes.open": len(items)}
+
+
 if __name__ == "__main__":
     tz = zoneinfo.ZoneInfo(config().get("tz", "Europe/London"))
     last = None
     while True:
         # the minute matters (what is next, what is past), and the files may change at any moment
-        key = os.path.getmtime(os.path.join(ROOT, "data", "groceries.json")) if os.path.exists(os.path.join(ROOT, "data", "groceries.json")) else 0
+        key = tuple(os.path.getmtime(os.path.join(ROOT, "data", f)) if os.path.exists(os.path.join(ROOT, "data", f)) else 0 for f in ("groceries.json", "notes.json"))
         if key != last:
             last = key
-            put(shopping())
+            put({**shopping(), **notes()})
         time.sleep(3)

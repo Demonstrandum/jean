@@ -283,7 +283,8 @@ fn handle(app: &Arc<App>, mut req: Request) {
         (false, "/ui.js") => {
             // from the source tree when it exists (edit ui.ts and reload), else the copy compiled into the binary
             let src = fs::read_to_string(app.here.join("../ui/ts/ui.ts")).unwrap_or_else(|_| ui::SOURCE.to_string());
-            match ui::bundle(&src) {
+            let screens = fs::read_to_string(app.here.join("../ui/ts/screens.ts")).unwrap_or_else(|_| ui::SCREENS.to_string());
+            match ui::bundle_all(&src, &screens) {
                 Ok(js) => text(req, 200, "text/javascript; charset=utf-8", js),
                 Err(e) => text(req, 500, "text/javascript", format!("console.error({e:?});")),
             }
@@ -345,6 +346,17 @@ fn handle(app: &Arc<App>, mut req: Request) {
         }
         (false, "/data") => reply(req, 200, app.hub.snapshot()),
         (false, "/feeds") => reply(req, 200, app.feeds.status()),
+        (true, "/screen") => {
+            // navigation: `POST /screen?name=energy[&hold=60000]` (the page also takes it as the key "ui.screen")
+            let Some(name) = query_param(query, "name") else {
+                return reply(req, 400, json!({ "ok": false, "error": "name=<screen>" }));
+            };
+            if let Some(hold) = query_param(query, "hold").and_then(|h| h.parse::<u64>().ok()) {
+                app.hub.set("ui.hold", json!(hold), None);
+            }
+            app.hub.set("ui.screen", json!(name), None);
+            reply(req, 200, json!({ "ok": true, "screen": name }))
+        }
         (true, "/push") => {
             // {"key": "...", "value": ...} or {"a.b": 1, "c": 2}; the same shapes a feed prints
             let rows = feeds::parse_line(&body.replace('\n', " "));

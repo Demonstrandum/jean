@@ -12,6 +12,8 @@ use oxc::transformer::{TransformOptions, Transformer};
 
 /// The TypeScript source, embedded at compile time.
 pub const SOURCE: &str = include_str!("../ts/ui.ts");
+/// The real screens (HOME, DAY, WEATHER, ENERGY, LISTS, CLAUDE, SYSTEM): registered after the kit loads.
+pub const SCREENS: &str = include_str!("../ts/screens.ts");
 
 /// Strip TypeScript types from `src` and return plain JS.
 pub fn strip_types(src: &str, filename: &str) -> Result<String, String> {
@@ -65,9 +67,14 @@ pub fn strip_eval(src: &str) -> Result<String, String> {
     Ok(js.replace("export {};", ""))
 }
 
-/// The embedded `ui.ts` as an injectable script.
+/// The kit followed by the real screens, as one injectable script.
 pub fn js() -> Result<String, String> {
-    bundle(SOURCE)
+    bundle_all(SOURCE, SCREENS)
+}
+
+/// `ui.ts` and `screens.ts` sources bundled in order (the screens use the globals the kit installs).
+pub fn bundle_all(ui_src: &str, screens_src: &str) -> Result<String, String> {
+    Ok(format!("{}{}", bundle(ui_src)?, bundle(screens_src)?))
 }
 
 #[cfg(test)]
@@ -79,6 +86,7 @@ mod tests {
         let js = js().expect("ui.ts should compile");
         assert!(js.contains("window.ui"), "installs the ui object");
         assert!(js.contains("data-dropped"), "has the guaranteed-fit machinery");
+        assert!(js.contains("defineScreen(\"energy\""), "ships the real screens");
         assert!(!js.contains("OverflowError"), "size is never an error");
         assert!(!js.contains("export "), "no module syntax left");
         assert!(!js.contains("declare global"), "types are gone");

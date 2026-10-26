@@ -679,12 +679,15 @@ const spinner = (size = 14) => {
 };
 
 /** A countdown ring that ticks once a second and stops at zero (then calls onDone). */
-const liveTimer = (seconds: number, o: { label?: string; onDone?: () => void } = {}) => {
+const liveTimer = (seconds: number, o: { label?: string; total?: number; onDone?: () => void } = {}) => {
   let left = seconds;
-  const name = motionName("timer"), el = h("div", { class: "timerlive" }, timerRing(left, seconds, o.label));
+  const name = motionName("timer"), el = h("div", { class: "timerlive" }, timerRing(left, o.total ?? seconds, o.label));
+  let seen = false;
   every(name, 1000, () => {
+    if (!el.isConnected) { if (seen) stop(name); return; }   // the screen changed: stop ticking
+    seen = true;
     left = Math.max(0, left - 1);
-    el.replaceChildren(timerRing(left, seconds, left ? o.label : "DONE"));
+    el.replaceChildren(timerRing(left, o.total ?? seconds, left ? o.label : "DONE"));
     if (!left) { stop(name); o.onDone?.(); }
   });
   return el;
@@ -698,7 +701,8 @@ const typewriter = (text: string, o: { step?: number; cursor?: boolean } = {}) =
   const draw = () => { live.textContent = words.slice(0, n).join(" ") + " "; if (o.cursor !== false) live.append(cursor()); };
   draw();
   const el = h("div", { class: "typewriter" }, h("span", { class: "ghost" }, text), live);
-  every(name, 1000, () => { if (n >= words.length) { stop(name); live.lastChild instanceof HTMLElement && live.lastChild.remove(); return; } n = Math.min(words.length, n + step); draw(); });
+  let seen = false;
+  every(name, 1000, () => { if (!el.isConnected) { if (seen) stop(name); return; } seen = true; if (n >= words.length) { stop(name); live.lastChild instanceof HTMLElement && live.lastChild.remove(); return; } n = Math.min(words.length, n + step); draw(); });
   return el;
 };
 
@@ -708,7 +712,10 @@ const countUp = (to: number, o: { from?: number; ticks?: number; dec?: number; u
   const el = bignum(fmt(from), { unit: o.unit, chars: ([...fmt(to)].reduce((a, c) => a + (c === "." ? 0.45 : 1), 0)) + (o.unit ? 0.7 : 0) });
   let i = 0;
   const name = motionName("count");
+  let seen = false;
   every(name, 1000, () => {
+    if (!el.isConnected) { if (seen) stop(name); return; }
+    seen = true;
     i++;
     const t = 1 - Math.pow(1 - Math.min(1, i / ticks), 3);
     el.firstChild!.textContent = fmt(from + (to - from) * t);
@@ -720,7 +727,10 @@ const countUp = (to: number, o: { from?: number; ticks?: number; dec?: number; u
 /** A graph that scrolls: each tick `next()` gives one new value per series, the oldest drops off, `draw` rebuilds the graph. */
 const stream = (series: number[][], next: () => number[], draw: (s: number[][]) => HTMLElement, ms = 2000) => {
   const el = h("div", { class: "stream" }, draw(series)), name = motionName("stream");
+  let seen = false;
   every(name, ms, () => {
+    if (!el.isConnected) { if (seen) stop(name); return; }
+    seen = true;
     const nx = next();
     series.forEach((s, i) => { s.shift(); s.push(nx[i]); });
     el.replaceChildren(draw(series));
@@ -1400,7 +1410,42 @@ const giant = (value: Child, o: { size?: number; unit?: string } = {}) =>
   h("div", { class: "giant", style: { "--size": `${o.size ?? 240}px` } }, value, o.unit && h("small", o.unit));
 
 type SigList = [SigKind, any?][] | (() => [SigKind, any?][]);
-let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList } | null = null, frameHooked = false;
+// ------------------------------------------------ screens and the tab bar
+// A screen is a named function that builds the whole scene. The set of screens is the tab bar along the bottom of the display; switching
+// is `ui.go("energy")` or, from outside, writing the key "ui.screen" (POST /screen?name=energy): immediate, never journaled.
+// A non-home screen returns home after `hold` ms (key "ui.hold", default 2 min) so the wall display never gets stuck on a visitor's request.
+
+interface ScreenDef { name: string; tab: string; build: () => void }
+const screenDefs = new Map<string, ScreenDef>();
+let currentScreen: string | null = null, screenJobs: number[] = [], returnTimer: number | undefined;
+let homeScreen = "home";
+const HOLD_DEFAULT = 120_000;
+
+/** Register a screen. `tab` is its label in the tab bar (omit to leave it off the bar: a hidden screen). The first one is home. */
+function defineScreen(name: string, build: () => void, o: { tab?: string; hidden?: boolean } = {}): void {
+  if (!screenDefs.size) homeScreen = name;
+  screenDefs.set(name, { name, tab: o.hidden ? "" : o.tab ?? name.toUpperCase(), build });
+}
+
+/** Show a screen now. Its timers and bindings replace the previous screen's. */
+function go(name: string, o: { hold?: number } = {}): boolean {
+  const def = screenDefs.get(name);
+  if (!def) { console.warn("ui.go: no screen named", name, "- have:", [...screenDefs.keys()].join(", ")); return false; }
+  for (const id of screenJobs) jobs.delete(id);                        // the old screen's timers die with it
+  const before = new Set(jobs.keys());
+  def.build();
+  screenJobs = [...jobs.keys()].filter((id) => !before.has(id));
+  currentScreen = name;
+  realClearTimeout(returnTimer);
+  const hold = o.hold ?? (data.get("ui.hold")?.v as number | undefined) ?? HOLD_DEFAULT;
+  if (name !== homeScreen && hold > 0) returnTimer = realSetTimeout(() => go(homeScreen), hold) as unknown as number;
+  if (frameOpts) drawFrame();
+  return true;
+}
+/** Show `name` (or home) unless something is already showing: the page's first paint. */
+const start = (name?: string): void => { if (!currentScreen) go(name ?? homeScreen); };
+
+let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean } | null = null, frameHooked = false;
 
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
 function drawFrame(): void {
@@ -1437,10 +1482,25 @@ function drawFrame(): void {
   marks += cluster(items(frameOpts.tl), 28, 1) + cluster(items(frameOpts.tr), w - 26, -1);
   const t = new Date(), clock = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
   const tb = { x: 24, y: hh - 22, w: w - 48, h: 15 };
-  d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
-  marks += txt(tb.x + 7, tb.y + 10.5, "D1", "start");
-  marks += txt(tb.x + 62, tb.y + 10.5, (frameOpts.title ?? "").toUpperCase(), "start");
-  marks += txt(tb.x + tb.w - 85, tb.y + 10.5, `${frameOpts.sheet ?? "1/1"}  ${clock}`, "start");
+  const tabs = frameOpts.tabs ? [...screenDefs.values()].filter((sc) => sc.tab) : [];
+  if (tabs.length) {
+    // the screens you can ask for, as tabs along the bottom: the current one inverted. Display only: say "show energy".
+    const clockW = 66, cw = (tb.w - clockW) / tabs.length;
+    d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${f(tb.x + tb.w - clockW)} ${tb.y}v${tb.h}`;
+    tabs.forEach((sc, i) => {
+      const x = tb.x + i * cw, on = sc.name === currentScreen;
+      if (i) d += `M${f(x)} ${tb.y}v${tb.h}`;
+      // the layer is blended with "difference": white shows black, and black text on the white block shows white on black
+      if (on) marks += `<rect x="${f(x)}" y="${tb.y}" width="${f(cw)}" height="${tb.h}" fill="currentColor" stroke="none"/>`;
+      marks += `<text x="${f(x + cw / 2)}" y="${f(tb.y + 10.5)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font-weight:${on ? 700 : 500}">${i + 1} ${escHtml(sc.tab)}</text>`;
+    });
+    marks += txt(tb.x + tb.w - clockW / 2, tb.y + 10.5, clock);
+  } else {
+    d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
+    marks += txt(tb.x + 7, tb.y + 10.5, "D1", "start");
+    marks += txt(tb.x + 62, tb.y + 10.5, (frameOpts.title ?? "").toUpperCase(), "start");
+    marks += txt(tb.x + tb.w - 85, tb.y + 10.5, `${frameOpts.sheet ?? "1/1"}  ${clock}`, "start");
+  }
   const target = (cx: number, cy: number) => `<circle cx="${cx}" cy="${cy}" r="3.2"/><path d="M${cx - 6} ${cy}h12M${cx} ${cy - 6}v12"/>`;
   const el = h("div", { id: "ui-frame" });
   el.innerHTML = `<svg width="${w}" height="${hh}" viewBox="0 0 ${w} ${hh}" fill="none" stroke="currentColor" stroke-width="1">${target(12, 11)}${target(w - 12, 11)}<path d="${d}"/>${marks}</svg>`;
@@ -1452,7 +1512,7 @@ function drawFrame(): void {
  * column letters (A-F) and row numbers (1-3) matching the tilegrid so every module has an address like "B2",
  * and a terse title block. ui.frame({title, sheet, tl, tr}) turns it on, ui.frame(false) off.
  */
-function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList } = true): void {
+function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean } = true): void {
   frameOpts = opt === false ? null : typeof opt === "object" ? opt : {};
   drawFrame();
   if (!frameHooked) {
@@ -1822,10 +1882,12 @@ const style = h("style", `${fontFaceCss()}
 #screen .timerring svg{display:block;width:100%;height:auto;max-height:100%}
 #screen .tile.fill .tile-body>.timerlive{flex:none;width:min(100cqw,100cqh);margin:0 auto}
 #screen .timerlive .timerring{width:100%}
+#screen .tile.fill .tile-body>.feed>.timerlive{flex:none;width:min(100cqw,100cqh);margin:0 auto}
+#screen .tile.fill .tile-body>.feed>.dial,#screen .tile.fill .tile-body>.feed>.polar{flex:none;margin:0 auto}
 #screen .tile.fill .tile-body>.dial{flex:none;margin:0 auto}
 #screen .pane{container-type:size;flex:1 1 0;align-self:stretch;min-width:0;min-height:0;display:flex;align-items:center}
 #screen .lines{width:100%;height:100%;display:flex;flex-direction:column}
-#screen .lines .ln{flex:1 1 0;min-height:0;display:flex;align-items:center;gap:7px;border-bottom:1px solid #000;font:500 13.5px/1.2 var(--sans)}
+#screen .lines .ln{flex:1 1 0;min-height:0;max-height:42px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #000;font:500 13.5px/1.2 var(--sans)}
 #screen .lines .ln:last-child{border-bottom:0}
 #screen .lines .l{font:500 11.5px var(--mono);flex:none;display:inline-flex;align-items:center}
 #screen .lines .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1973,6 +2035,7 @@ const fits = (): FitReport => adapt();
 const realSetTimeout = window.setTimeout.bind(window);
 const realSetInterval = window.setInterval.bind(window);
 const realClearInterval = window.clearInterval.bind(window);
+const realClearTimeout = window.clearTimeout.bind(window);
 
 const intervals = new Map<number, { ms: number; name?: string }>();
 // Intervals made between begin() and verify() belong to that change. Only those are cancelled
@@ -2045,6 +2108,7 @@ const watchers = new Set<Watcher>();
 
 /** Write a value. This never touches the DOM: bindings that show the key go stale and redraw at their next beat. */
 function setData(key: string, v: any, ts: number = Date.now()): void {
+  if (key === "ui.screen" && typeof v === "string" && v !== currentScreen) { data.set(key, { v, ts }); go(v); return; }   // navigation is immediate
   const old = data.get(key);
   const changed = !old || JSON.stringify(old.v) !== JSON.stringify(v);
   data.set(key, { v, ts });
@@ -2401,6 +2465,8 @@ const ui = {
   /** The data store: ui.set(key, v) (no redraw until the next beat), ui.get(key), ui.age(key) minutes, ui.data() everything. */
   set: setData, get: (k: string) => data.get(k)?.v, age: dataAge, data: () => Object.fromEntries([...data].map(([k, d]) => [k, d.v])),
   connect, push, run, link: () => link,
+  /** Screens and the tab bar: defineScreen(name, build, {tab}) go(name) start() screens() current() */
+  defineScreen, go, start, screens: () => [...screenDefs.keys()], current: () => currentScreen,
   size: (w: number, ht: number) => { screen.style.width = w + "px"; screen.style.height = ht + "px"; adapt(); },
   css: (text: string) => document.head.append(h("style", text)),
   help: () => HELP,

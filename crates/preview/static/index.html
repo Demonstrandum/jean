@@ -7,7 +7,7 @@
   #stage { position: relative; }
   #scaler { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   #screen { box-shadow: 0 0 0 10px #222; }
-  nav { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px; display: flex; gap: 14px; justify-content: center;
+  nav { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center;
         background: #b4b4b4; z-index: 20; }
   nav a { color: #111; text-decoration: none; padding: 2px 8px; }
   nav a.on { background: #111; color: #fff; }
@@ -60,105 +60,6 @@
   const pctCell = (v) => div({ style: "display:flex;align-items:center;gap:7px;min-width:92px" }, div({ style: "flex:1" }, segbar(Math.min(100, v), 100)), v.toFixed(1));
 
   const scenes = {
-    // The home sheet: all of it live.
-    now() {
-      sheet(
-        place(center(feed(["time.minute", "sun.rise", "sun.set"], ([, r, s]) => dayDial({ rise: r ?? "07:00", set: s ?? "17:00", size: 244 }), MIN)), "1 / 1 / 3 / 3"),
-        place(tile("Wx", feed("wx.kind", (k) => weatherIcon(k, 46)), { glyph: "cloud", tone: "iconic", waves: { from: 34 },
-          count: feed(["wx.temp", "wx.text", "wx.rain_from"], ([t, x, r]) => [div(`${num(t)}°C ${(x ?? "").toLowerCase()}`), div(r ? `rain ${r}` : "dry 24 h")]) }), "1 / 3 / 3 / 4"),
-        place(tile("Calendar", feed(["time.minute", "cal.week"], ([, wk]) => {
-          const today = new Date().toLocaleDateString("sv"), up = (wk ?? []).filter((e) => !(e.date === today && e.past)).slice(0, 3);
-          const day = (e) => (e.date === today ? "" : new Date(e.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short" }) + " ");
-          return up.length ? lines(up.map((e) => [day(e) + (e.all_day ? "all day" : e.t), e.title, e.dur ? dur(e.dur) : ""])) : div({ style: "font:600 15px var(--sans)" }, "Nothing this week");
-        }, MIN), { glyph: "calendar", tone: "list", count: feed(["time.minute", "cal.next"], ([, n]) => (n ? `next in ${dur(Math.max(0, n.in_min))}` : "clear for a week"), MIN) }), "1 / 4 / 2 / 6"),
-        place(tile("Shop", feed("shop.items", (it) => (it.length ? checklist(it.slice(0, 6).map((i) => [i.text, i.qty, i.done])) : div("Nothing needed"))), { glyph: "bag", tone: "list", count: feed("shop.open", (n) => `${n} to get`) }), "1 / 6 / 3 / 7"),
-        place(tile("Grid", feed("carbon.now", (g) => bignum(num(g), { unit: "g" })), { glyph: "leaf", count: feed(["carbon.index", "carbon.best"], ([i, b]) => [sigil("state", i === "very low" || i === "low" ? "ok" : i === "moderate" ? "warn" : "err", 10), ` ${b ? "best " + b[0] : i ?? ""}`]) }), "2 / 4 / 3 / 5"),
-        place(tile("Sys", feed(["cpu.total", "mem.pct", "disk.pct"], ([c, m, d]) => lines([["cpu", "", num(c) + "%"], ["ram", "", num(m) + "%"], ["disk", "", num(d) + "%"]])), { glyph: "cpu", tone: "list", count: feed("sys.uptime", (s) => "up " + upfmt(s)) }), "2 / 5 / 3 / 6"),
-        place(tile("Next 24 h", feed("wx.hourly", (t) => areaChart(t, { w: 330, h: 64, labels: [["now", 0], ["+6h", 6], ["+12h", 12], ["+18h", 18]] }), MIN), { glyph: "thermo", tone: "fill",
-          count: feed("wx.hourly", (t) => `min ${num(Math.min(...t), 1)} · max ${num(Math.max(...t), 1)} °C`) }), "3 / 1 / 4 / 3"),
-        place(tile("Link", feed(["wifi.bars", "net.down", "net.up"], ([b, d, u]) => div({ style: "display:flex;flex-direction:column;gap:6px;align-items:flex-start" }, sigil("bars", b ?? 0, 26), div({ style: "font:600 13px var(--mono)" }, `↓ ${num(d, 1)}`), div({ style: "font:600 13px var(--mono)" }, `↑ ${num(u, 1)}`))), { glyph: "wifi", count: feed("wifi.rssi", (r) => (r == null ? "MB/s" : `${r} dBm`)) }), "3 / 3 / 4 / 4"),
-        place(tile("Claude", feed("claude.say", (s) => div({ style: "font:600 17px/1.35 var(--sans)" }, s), { fallback: div({ style: "font:500 15px var(--sans)" }, "Nothing to say yet.") }), { glyph: "sparkle", count: feed("claude.at", (t) => `said ${t}`, { fallback: "waiting" }) }), "3 / 4 / 4 / 7"),
-      );
-    },
-
-    // The day as a route diagram, from data/calendar.json.
-    day() {
-      sheet(
-        place(tile("Today", feed(["time.minute", "cal.today"], ([, ev]) => {
-          const m = (hm) => +hm.slice(0, 2) * 60 + +hm.slice(3);
-          const tt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
-          const stops = (ev ?? []).filter((e) => !e.all_day).map((e) => ({ at: e.t, to: tt(Math.min(1439, m(e.t) + Math.max(15, e.dur || 0))), name: e.title }));
-          const timed = (ev ?? []).filter((e) => !e.all_day), from = Math.min(7 * 60, ...timed.map((e) => m(e.t))), to = Math.max(21 * 60, ...timed.map((e) => m(e.t) + e.dur + 30));
-          return routes({ from: tt(Math.floor(from / 60) * 60), to: tt(Math.min(1439, Math.ceil(to / 60) * 60)), now: nowHM(), w: 722, lanes: [{ label: "Today", look: "solid", stops }] });
-        }, MIN), { glyph: "calendar", count: feed("cal.today", (ev) => `${(ev ?? []).length} events today · Google Calendar`), tone: "fill" }), "1 / 1 / 3 / 7"),
-        place(tile("Busy", feed("cal.today", (ev) => { const h = (ev ?? []).reduce((a, e) => a + (e.dur || 0), 0) / 60; return div({ style: "width:100%" }, waffle(h, 14, { cols: 14 }), div({ style: "height:7px" }), readouts([{ label: "Busy", value: h, max: 14, text: num(h, 1), unit: "h" }])); }), { glyph: "clock", count: "of 14 h" }), "3 / 1 / 4 / 3"),
-        place(tile("Next", feed(["time.minute", "cal.week"], ([, wk]) => {
-          const today = new Date().toLocaleDateString("sv"), up = (wk ?? []).filter((e) => !(e.date === today && e.past)).slice(0, 3);
-          const day = (e) => (e.date === today ? "" : new Date(e.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short" }) + " ");
-          return up.length ? lines(up.map((e) => [day(e) + (e.all_day ? "day" : e.t), e.title, e.dur ? dur(e.dur) : ""])) : div("Nothing this week");
-        }, MIN), { glyph: "flag", tone: "list", count: "next 7 days · Google Calendar" }), "3 / 3 / 4 / 5"),
-        place(tile("Sun & moon", feed(["sun.rise", "sun.set", "moon.phase", "moon.name"], ([r, s, ph, nm]) => div({ style: "display:flex;gap:12px;align-items:center;width:100%" }, moon(ph ?? 0, 46), kvgrid({ rise: r ?? "–", set: s ?? "–", moon: nm ?? "–" }, 1))), { glyph: "sun", count: feed(["sun.rise", "sun.set"], ([r, s]) => { if (!r) return ""; const m = (x) => +x.slice(0, 2) * 60 + +x.slice(3); return `day ${dur(m(s) - m(r))}`; }) }), "3 / 5 / 4 / 7"),
-      );
-    },
-
-    // Your Octopus account: the tariff, the rate, and the smart meter's usage (a half-hourly tariff also shows its rate chart).
-    power() {
-      sheet(
-        place(tile("Usage · kWh / half hour", feed(["power.kind", "power.usage_slots", "power.slots", "power.cheap", "time.minute"], ([kind, us, sl, ch]) => {
-          if (kind === "halfhourly" && sl && sl.length) {
-            const vals = sl.map((x) => x[1]), now = nowHM();
-            let ni = vals.length - 1; for (let i = 0; i < sl.length; i++) if (sl[i][0] > now) { ni = Math.max(0, i - 1); break; }
-            const o = { w: 468, h: 206, now: ni + 0.5, marks: true, fmt: (i, v) => `${sl[i][0]} ${v}p`, limit: [0, "0p"], labels: sl.map((x, i) => [x[0].slice(0, 2), i]).filter(([h, i]) => sl[i][0].endsWith(":00") && +h % 6 === 0 && (i === 0 || sl[i][0] !== sl[i - 1][0])) };
-            if (ch) { const a = sl.findIndex((x) => x[0] === ch[0]); const b = sl.findIndex((x) => x[0] === ch[1]); if (a >= 0) o.window = [a, (b > a ? b : sl.length) - 1]; }
-            return areaChart(vals, o);
-          }
-          if (us && us.length) return areaChart(us, { w: 468, h: 206, marks: true, fmt: (i, v) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"} ${v}`, labels: [["00", 0], ["06", 12], ["12", 24], ["18", 36], ["23", 46]] });
-          return div({ style: "font:500 15px/1.4 var(--sans)" }, "No smart-meter readings yet.", div({ style: "font:500 12px var(--mono);margin-top:6px" }, "Octopus publishes them about a day behind, and a new tariff starts empty."));
-        }, MIN), { glyph: "bolt", tone: "fill", count: feed(["power.usage_day", "power.usage_latest"], ([d, l]) => (d ? `${d} · latest reading ${l}` : "waiting for the meter · Octopus API")) }), "1 / 1 / 3 / 5"),
-        place(tile("Unit rate", feed(["power.rate", "power.standing"], ([r, sc]) => div({ style: "width:100%" }, bignum(num(r, 1), { unit: "p" }), readouts([{ label: "Standing", value: sc ?? 0, max: 100, text: num(sc, 1), unit: "p/day" }]))), { glyph: "plug", count: feed(["power.tariff", "power.kind"], ([t, k]) => `${t ?? "–"} · ${k === "halfhourly" ? "half-hourly" : "flat rate"}`) }), "1 / 5 / 3 / 7"),
-        place(tile("Last full day", feed(["power.usage_kwh", "power.usage_cost"], ([k, c]) => (k == null ? div("–") : div({ style: "display:flex;gap:14px;align-items:flex-end" }, bignum(num(k, 1), { unit: "kWh" }), div({ style: "font:600 20px var(--cond)" }, "£" + num(c, 2))))), { count: feed("power.usage_day", (d) => d ?? "no data yet") }), "3 / 1 / 4 / 3"),
-        place(tile("Week · kWh", feed("power.week", (w) => (w && w.length ? dotBars(last(w.map((x) => x[1]), 7).map((v) => Math.min(1, v / Math.max(...w.map((x) => x[1]), 1))), { rows: 6 }) : div("–"))), { glyph: "pulse", count: feed("power.week", (w) => (w && w.length ? `${w.length} days · avg ${num(w.reduce((a, x) => a + x[1], 0) / w.length, 1)}` : "no data yet")) }), "3 / 3 / 4 / 5"),
-        place(tile("Account", feed(["power.product", "power.updated"], ([p, u]) => kvgrid({ product: p ?? "–", updated: u ?? "–" }, 1)), { glyph: "info", count: "Octopus API · every 15 min" }), "3 / 5 / 4 / 7"),
-      );
-    },
-
-    // The grid's carbon forecast: green under 100 g (the National Grid ESO regional forecast).
-    green() {
-      sheet(
-        place(tile("Clean energy · gCO₂/kWh · next 24 h", feed(["carbon.slots", "carbon.best", "carbon.green", "time.minute"], ([sl, best, lim]) => {
-          if (!sl) return div("–");
-          const vals = sl.map((x) => x[1]);
-          const o = { limit: lim ?? 100, w: 700, h: 190, now: 0, limitLabel: `${lim ?? 100} g green line`, labels: sl.map((x, i) => [x[0].slice(0, 2), i]).filter(([h, i]) => sl[i][0].endsWith(":00") && +h % 3 === 0 || i === 0) };
-          if (best) { const a = sl.findIndex((x) => x[0] === best[0]); if (a >= 0) { o.window = [a, Math.min(a + 3, sl.length - 1)]; o.windowLabel = `cleanest ${best[0]}–${best[1]}`; } }
-          return limitBars(vals, o);
-        }, MIN), { glyph: "leaf", tone: "fill", count: feed(["carbon.region", "carbon.slots"], ([r, sl]) => `${r ?? "–"} · solid = under 100 g · ${sl ? `${Math.round((100 * sl.filter((x) => x[1] <= 100).length) / sl.length)}% of the day green` : ""}`) }), "1 / 1 / 3 / 7"),
-        place(tile("Now", feed("carbon.now", (g) => bignum(num(g), { unit: "g" })), { glyph: "leaf", count: feed("carbon.index", (i) => [sigil("state", i === "very low" || i === "low" ? "ok" : i === "moderate" ? "warn" : "err", 10), ` ${i ?? "–"}`]) }), "3 / 1 / 4 / 3"),
-        place(tile("Cleanest 2 h", feed("carbon.best", (b) => (b ? div({ style: "font:600 24px/1.1 var(--cond)" }, `${b[0]}–${b[1]}`, div({ style: "font:500 12px var(--mono)" }, `avg ${b[2]} g`)) : div("–"))), { glyph: "clock", count: "run the dishwasher then" }), "3 / 3 / 4 / 5"),
-        place(tile("Mix now", feed("carbon.mix", (m) => lines(Object.entries(m ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => ["", k, num(v, 0) + "%"]))), { glyph: "wave", tone: "list", count: "generation by fuel" }), "3 / 5 / 4 / 7"),
-      );
-    },
-
-    // The computer: bound to feeds/machine.py, net.py and wifi.sh.
-    machine() {
-      sheet(
-        place(tile("¹ cpu", feed(["cpu.hist", "cpu.cores", "sys.load_hist", "cpu.count", "cpu.total"], ([h, cores, lh, n, tot]) => {
-          const right = cores && Object.keys(cores).length
-            ? sparkRows(Object.keys(cores).slice(0, 4).map((k) => ({ label: "C" + k.slice(3), values: last(cores[k], 18), text: num(cores[k].at(-1) * 100) + "%" })), { rows: 4 })
-            : sparkRows([["1m", "1"], ["5m", "5"], ["15m", "15"]].map(([label, k]) => ({ label, values: last((lh?.[k] ?? []).map((v) => v / (n || 1)), 18), text: num(lh?.[k]?.at(-1), 2) })), { rows: 4 });
-          return div({ style: "display:flex;gap:16px;width:100%;height:100%;align-items:stretch" },
-            div({ style: "flex:1.15;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px" }, dotBars(last(h, 22), { rows: 15 }), small(`total ${num(tot)}% · ${n ?? "–"} cores`)),
-            div({ style: "flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center" }, right));
-        }), { tone: "legend", count: feed(["sys.load", "sys.load5", "sys.load15", "sys.temp"], ([a, b, c, t]) => [sigil("trend", "flat"), ` load ${num(a, 2)} ${num(b, 2)} ${num(c, 2)}` + (t != null ? ` · ${t}°C` : "")]) }), "1 / 1 / 3 / 5"),
-        place(tile("² mem", feed(["mem.apps", "mem.cache", "mem.free", "swap.used", "swap.total"], ([a, c, f, su, st]) => div({ style: "width:100%" }, stackBar([{ label: "apps", value: +num(a, 1), look: "solid" }, { label: "cache", value: +num(c, 1), look: "hatch" }, { label: "free", value: +num(f, 1), look: "outline" }]), div({ style: "height:7px" }),
-          readouts([{ label: "Swap", value: su ?? 0, max: Math.max(st ?? 1, 0.1), text: num(su, 1), unit: `/${num(st, 0)}G` }]))), { tone: "legend", count: feed("mem.total", (t) => `${num(t, 0)} GB`) }), "1 / 5 / 2 / 7"),
-        place(tile("³ net", feed(["net.down_hist", "net.up_hist"], ([d, u]) => { const top = Math.max(0.5, ...(d ?? []), ...(u ?? [])); return div({ style: "width:100%" }, dotMirror(sqrtScale(last(d, 44), top), sqrtScale(last(u, 44), top), { rows: 5 })); }),
-          { tone: "legend", count: feed(["net.iface", "net.down", "net.up"], ([i, d, u]) => [ui.h("b", "↓ " + num(d, 1)), " ", ui.h("b", "↑ " + num(u, 1)), ` MB/s · ${i ?? "–"}`]) }), "2 / 5 / 3 / 7"),
-        place(tile("⁶ system", feed(["sys.host", "sys.kernel", "sys.uptime", "net.ip", "wifi.ssid", "wifi.rssi", "proc.count"], ([host, kern, up, ip, ssid, rssi, np]) => kvgrid({ host: host ?? "–", kernel: kern ?? "–", up: upfmt(up), ip: ip ?? "–", wifi: rssi != null ? `${rssi} dBm` : "–", procs: np ?? "–" }, 2)), { tone: "legend", count: "feeds/machine.py · every 3 s" }), "3 / 1 / 4 / 4"),
-        feed(["disk.hist", "disk.total", "disk.used"], ([h, t, u]) => place(usageTile("⁴ disk", h && h.length ? h : [u ?? 0], t ?? 1, `${num(u, 2)} TB`).set({ class: "legend" }), "3 / 4 / 4 / 5")),
-        place(tile("⁵ proc", feed("proc.top", (rows) => lines((rows ?? []).slice(0, 3).map((r) => [sigil("state", r.cpu > 50 ? "warn" : "ok", 10), r.name, num(r.cpu, 1) + "%"]))), { tone: "legend list", count: feed("proc.count", (n) => `top 3 of ${n}`) }), "3 / 5 / 4 / 7"),
-      );
-    },
-
     // The link to the machine itself.
     live() {
       const fmtT = (t) => new Date(t).toTimeString().slice(0, 8);
@@ -263,27 +164,35 @@
     },
   };
 
-  const name = scenes[sp.get("scene")] ? sp.get("scene") : "now";
+  // The real screens (crates/ui/ts/screens.ts) are the tabs along the bottom of the display; the rest of this page is the gallery of
+  // sample layouts. ?screen=energy shows a real one (default home), ?scene=console a gallery one.
+  const sample = scenes[sp.get("scene")] ? sp.get("scene") : null;
+  const name = sample ?? (ui.screens().includes(sp.get("screen")) ? sp.get("screen") : ui.screens()[0]);
   const ek = sp.get("eink");
   // layout depends on the fonts, so nothing is built (or measured) until they are loaded
   ui.ready().then(() => {
     if (sp.get("accent")) ui.accent("#" + sp.get("accent"));
     if (ek !== null) ui.eink({ algo: ek || "atkinson" });
-    scenes[name]();
-    const sample = ["room", "console", "motion", "answer", "agents", "icons"].includes(name);
-    if (name !== "icons") ui.frame({ title: name + (sample ? " · sample" : ""), sheet: `${Object.keys(scenes).indexOf(name) + 1}/${Object.keys(scenes).length}`, ...SIG });
+    if (sample) {
+      scenes[sample]();
+      if (sample !== "icons") ui.frame({ title: sample + " · sample", sheet: `${Object.keys(scenes).indexOf(sample) + 1}/${Object.keys(scenes).length}`, ...SIG });
+    } else {
+      ui.set("ui.hold", 0);        // a preview stays on the screen you asked for
+      ui.shell(name);
+    }
     fit();
     showFit();
   });
 
-  // ---- scene switcher (outside the screen) -----------------------------------
+  // ---- navigation (outside the screen): the real screens, then the gallery
   const navEl = document.getElementById("scenenav");
-  for (const n of Object.keys(scenes)) {
-    const q = new URLSearchParams(sp); q.set("scene", n);
-    const a = document.createElement("a");
-    a.href = "?" + q; a.textContent = n; if (n === name) a.className = "on";
-    navEl.append(a);
-  }
+  const link = (label, key, val, on) => {
+    const q = new URLSearchParams(); q.set(key, val);
+    const a = document.createElement("a"); a.href = "?" + q; a.textContent = label; if (on) a.className = "on"; navEl.append(a);
+  };
+  for (const n of ui.screens()) link(n, "screen", n, !sample && n === name);
+  const sep = document.createElement("span"); sep.textContent = "|"; sep.style.opacity = ".4"; navEl.append(sep);
+  for (const n of Object.keys(scenes)) link(n, "scene", n, n === sample);
 
   // ---- fit indicator: the screen always contains the scene; this says how --------------
   const fitEl = document.createElement("span");

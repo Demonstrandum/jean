@@ -1,0 +1,6 @@
+{
+  "_help": "Things Claude should keep in mind or remind you of. {text, due?}; set done: true to hide.",
+  "items": [
+    { "text": "Example note: ask Claude to remember something", "due": "eg" }
+  ]
+}
