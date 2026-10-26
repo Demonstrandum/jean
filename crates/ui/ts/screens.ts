@@ -76,16 +76,16 @@
     sheet(
       place(tile("Now", feed(["wx.kind", "wx.temp"], ([k, t]) => div({ style: "display:flex;flex-direction:column;align-items:center;width:100%;height:100%;gap:4px" }, weatherIcon(k ?? "cloudy", 64), pane(bignum(num(t, 0) + "°")))),
         { glyph: "cloud", count: feed(["wx.text", "wx.feels"], ([x, f]) => `${x ?? "–"} · feels ${num(f, 0)}°`) }), "1 / 1 / 3 / 3"),
-      place(tile("Next 24 h · °C", feed("wx.hourly", (t) => areaChart(t, { w: 468, h: 72, marks: true, fmt: (i, v) => `+${i}h ${v}°`, labels: [["now", 0], ["+6h", 6], ["+12h", 12], ["+18h", 18]] }), MIN), { glyph: "thermo", tone: "fill",
+      place(tile("Next 24 h · °C", feed("wx.hourly", (t) => areaChart(t, { w: 468, h: 72, labels: [["now", 0], ["+6h", 6], ["+12h", 12], ["+18h", 18]] }), MIN), { glyph: "thermo", tone: "fill",
         count: feed("wx.hourly", (t) => `min ${num(Math.min(...t), 1)} · max ${num(Math.max(...t), 1)}`) }), "1 / 3 / 2 / 7"),
       place(tile("Rain chance · next 24 h · by hour", feed(["wx.pop", "wx.hours"], ([p, hrs]) => dotBars((p ?? []).map((x) => (x ?? 0) / 100), { rows: 3, labels: hrs ?? undefined })), { glyph: "drop", tone: "fill",
         count: feed(["wx.rain_from", "wx.pop"], ([r, p]) => (r ? `rain from ${r}` : "no rain expected") + ` · peak ${Math.max(0, ...(p ?? []))}%`) }), "2 / 3 / 3 / 7"),
-      place(tile("Wind", feed(["wx.wind", "wx.wind_dir"], ([w, d]) => div({ style: "display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;height:100%" }, sigil("dir", d ?? 0, 22), pane(bignum(num(w), { unit: "mph" })))), { glyph: "wind", count: feed("wx.wind_dir", (d) => `from ${compass(d)}`) }), "3 / 1 / 4 / 2"),
-      place(tile("Baro", feed("wx.pressure", (p) => bignum(num(p), { unit: "hPa" })), { glyph: "info", count: feed("wx.cloud", (c) => [sigil("level", [c ?? 0, 8], 11), ` cloud ${c ?? "–"}/8`]) }), "3 / 2 / 4 / 3"),
-      place(tile("UV", feed("wx.uv", (v) => bignum(num(v, 1))), { glyph: "sun", count: feed(["wx.uv_band", "wx.uv_max"], ([b, m]) => [div([sigil("level", [Math.min(11, m ?? 0), 11], 11), ` ${b ?? "–"}`]), div(`max ${num(m, 1)}`)]) }), "3 / 3 / 4 / 4"),
-      place(tile("Air", feed("aq.eaqi", (v) => bignum(num(v))), { glyph: "leaf", count: feed(["aq.band", "aq.main"], ([b, m]) => [sigil("state", b === "good" || b === "fair" ? "ok" : b === "moderate" ? "warn" : "err", 10), ` ${b ?? "–"} · ${m ?? ""}`]) }), "3 / 4 / 4 / 5"),
-      place(tile("Sun & moon", feed(["sun.rise", "sun.set", "moon.phase", "moon.name"], ([r, s, ph, nm]) => div({ style: "display:flex;gap:12px;align-items:center;width:100%" }, moon(ph ?? 0, 46), kvgrid({ rise: r ?? "–", set: s ?? "–", moon: nm ?? "–" }, 1))), { glyph: "sun",
-        count: feed(["sun.rise", "sun.set"], ([r, s]) => { if (!r) return ""; const m = (x) => +x.slice(0, 2) * 60 + +x.slice(3); return `day ${dur(m(s) - m(r))}`; }) }), "3 / 5 / 4 / 7"),
+      place(tile("Wind", feed(["wx.wind", "wx.wind_dir"], ([w, d]) => div({ style: "display:flex;gap:14px;align-items:center;width:100%;height:100%" }, sigil("dir", d ?? 0, 38), pane(bignum(num(w), { unit: "mph" })))), { glyph: "wind",
+        count: feed(["wx.wind_dir", "wx.pressure"], ([d, p]) => `from ${compass(d)} · ${num(p)} hPa`) }), "3 / 1 / 4 / 3"),
+      place(tile("UV index", feed(["wx.uv", "wx.uv_band", "wx.uv_max"], ([v, b, m]) => div({ style: "display:flex;gap:16px;align-items:center;width:100%;height:100%" }, pane(bignum(num(v, 1))),
+        div({ style: "font:600 15px/1.35 var(--sans)" }, b ?? "–", div({ style: "font:500 12px var(--mono)" }, `max ${num(m, 1)}`)))), { glyph: "sun", count: feed("wx.uv", (v) => [sigil("level", [Math.min(11, v ?? 0), 11], 11), " scale 0–11+"]) }), "3 / 3 / 4 / 5"),
+      place(tile("Air quality", feed(["aq.eaqi", "aq.band", "aq.pm25"], ([v, b, pm]) => div({ style: "display:flex;gap:16px;align-items:center;width:100%;height:100%" }, pane(bignum(num(v))),
+        div({ style: "font:600 15px/1.35 var(--sans)" }, b ?? "–", div({ style: "font:500 12px var(--mono)" }, `PM2.5 ${num(pm, 1)}`)))), { glyph: "leaf", count: feed(["aq.band", "aq.main"], ([b, m]) => [sigil("state", b === "good" || b === "fair" ? "ok" : b === "moderate" ? "warn" : "err", 10), ` European AQI · ${m ?? ""}`]) }), "3 / 5 / 4 / 7"),
     );
   }, { tab: "WEATHER" });
 
