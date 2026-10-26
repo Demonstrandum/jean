@@ -27,12 +27,10 @@ def step():
     week = [e for e in evs if e["date"] <= (start + datetime.timedelta(days=7)).date().isoformat()]
     today_iso = now.date().isoformat()
     mins = now.hour * 60 + now.minute
-    today = []
-    for e in week:
-        if e["date"] != today_iso:
-            continue
+    for e in week:      # every event carries whether it is over, so screens need not know the time zone
         m = None if e["all_day"] else int(e["t"][:2]) * 60 + int(e["t"][3:])
-        today.append({**e, "past": (m is not None and m + e["dur"] <= mins)})
+        e["past"] = e["date"] == today_iso and m is not None and m + e["dur"] <= mins
+    today = [e for e in week if e["date"] == today_iso]
     nxt = None
     for e in week:
         if e["all_day"]:

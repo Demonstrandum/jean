@@ -17,6 +17,16 @@
   const sqrtScale = (a: number[], top: number) => a.map((x) => Math.sqrt(Math.min(1, x / top)));
   const pctCell = (v: number) => div({ style: "display:flex;align-items:center;gap:7px;min-width:92px" }, div({ style: "flex:1" }, segbar(Math.min(100, v), 100)), v.toFixed(1));
 
+  // The day the DAY screen draws: today while it still has something to come, else the next day with events.
+  const dayName = (iso: string, long = false) => new Date(iso + "T12:00").toLocaleDateString("en-GB", long ? { weekday: "short", day: "numeric", month: "short" } : { weekday: "short" });
+  const focusDay = (wk: any[] | null) => {
+    const today = new Date().toLocaleDateString("sv"), week = wk ?? [];
+    const left = week.filter((e) => e.date === today && !e.past && !e.all_day);
+    if (left.length) return { date: today, today: true, ev: week.filter((e) => e.date === today) };
+    const next = week.find((e) => e.date > today && !e.all_day);
+    return next ? { date: next.date, today: false, ev: week.filter((e) => e.date === next.date) } : { date: today, today: true, ev: week.filter((e) => e.date === today) };
+  };
+
   // ---- HOME
   ui.defineScreen("home", () => {
     sheet(
@@ -41,14 +51,16 @@
   // ---- DAY: Google Calendar (feeds/gcal.py)
   ui.defineScreen("day", () => {
     sheet(
-      place(tile("Today", feed(["time.minute", "cal.today"], ([, ev]) => {
+      place(tile("Day", feed(["time.minute", "cal.week"], ([, wk]) => {
+        const { date, ev, today } = focusDay(wk);
         const m = (hm) => +hm.slice(0, 2) * 60 + +hm.slice(3);
         const tt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
-        const stops = (ev ?? []).filter((e) => !e.all_day).map((e) => ({ at: e.t, to: tt(Math.min(1439, m(e.t) + Math.max(15, e.dur || 0))), name: e.title }));
-        const timed = (ev ?? []).filter((e) => !e.all_day), from = Math.min(7 * 60, ...timed.map((e) => m(e.t))), to = Math.max(21 * 60, ...timed.map((e) => m(e.t) + e.dur + 30));
-        return routes({ from: tt(Math.floor(from / 60) * 60), to: tt(Math.min(1439, Math.ceil(to / 60) * 60)), now: nowHM(), w: 722, lanes: [{ label: "Today", look: "solid", stops }] });
-      }, MIN), { glyph: "calendar", count: feed("cal.today", (ev) => `${(ev ?? []).length} events today · Google Calendar`), tone: "fill" }), "1 / 1 / 3 / 7"),
-      place(tile("Busy", feed("cal.today", (ev) => { const h = (ev ?? []).reduce((a, e) => a + (e.dur || 0), 0) / 60; return div({ style: "width:100%" }, waffle(h, 14, { cols: 14 }), div({ style: "height:7px" }), readouts([{ label: "Busy", value: h, max: 14, text: num(h, 1), unit: "h" }])); }), { glyph: "clock", count: "of 14 h" }), "3 / 1 / 4 / 3"),
+        const timed = ev.filter((e) => !e.all_day);
+        const stops = timed.map((e) => ({ at: e.t, to: tt(Math.min(1439, m(e.t) + Math.max(15, e.dur || 0))), name: e.title }));
+        const from = Math.min(7 * 60, ...timed.map((e) => m(e.t))), to = Math.max(21 * 60, ...timed.map((e) => m(e.t) + e.dur + 30));
+        return routes({ from: tt(Math.floor(from / 60) * 60), to: tt(Math.min(1439, Math.ceil(to / 60) * 60)), now: today ? nowHM() : undefined, w: 722, lanes: [{ label: today ? "Today" : dayName(date), look: "solid", stops }] });
+      }, MIN), { glyph: "calendar", count: feed(["time.minute", "cal.week"], ([, wk]) => { const { date, ev, today } = focusDay(wk); return `${today ? "today" : dayName(date, true)} · ${ev.length} event${ev.length === 1 ? "" : "s"} · Google Calendar`; }, MIN), tone: "fill" }), "1 / 1 / 3 / 7"),
+      place(tile("Busy", feed(["time.minute", "cal.week"], ([, wk]) => { const { ev } = focusDay(wk); const h = ev.reduce((a, e) => a + (e.dur || 0), 0) / 60; return div({ style: "width:100%" }, waffle(h, 14, { cols: 14 }), div({ style: "height:7px" }), readouts([{ label: "Busy", value: h, max: 14, text: num(h, 1), unit: "h" }])); }, MIN), { glyph: "clock", count: feed(["time.minute", "cal.week"], ([, wk]) => { const { date, today } = focusDay(wk); return today ? "of 14 h today" : `of 14 h · ${dayName(date)}`; }, MIN) }), "3 / 1 / 4 / 3"),
       place(tile("Next", feed(["time.minute", "cal.week"], ([, wk]) => {
         const today = new Date().toLocaleDateString("sv"), up = (wk ?? []).filter((e) => !(e.date === today && e.past)).slice(0, 3);
         const day = (e) => (e.date === today ? "" : new Date(e.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short" }) + " ");
