@@ -17,6 +17,7 @@
 <div id="stage"><div id="scaler"><main id="screen"></main></div></div>
 <nav id="scenenav"></nav>
 <script src="/ui.js"></script>
+<script src="/seeds.js"></script>   <!-- the real screens, run directly here (the live display gets them through its journal) -->
 <script>
   const sp = new URLSearchParams(location.search);
 
@@ -39,9 +40,10 @@
   // grainy wavy gradients. State is carried by tiny sigils (corner clusters and inline), not by words:
   //   top-left = the machine (state, link, data age, peers), top-right = the world (wind, cloud cover, pressure, mode).
   // top-left = the machine (link, wifi, cpu, disk), top-right = the world (wind, cloud cover, moon, events left); re-read at every redraw.
+  // corner sigils for the sample layouts (the real screens' live ones are ui.shell()'s)
   const SIG = {
-    tl: () => [["state", ui.get("link.server") === "up" ? "ok" : "err"], ["bars", ui.get("wifi.bars") ?? 0], ["level", [ui.get("cpu.total") ?? 0, 100]], ["level", [ui.get("disk.pct") ?? 0, 100]]],
-    tr: () => [["dir", ui.get("wx.wind_dir") ?? 0], ["level", [ui.get("wx.cloud") ?? 0, 8]], ["glyph", "moon"], ["count", ui.get("cal.left") ?? 0]],
+    tl: [sig.state(State.Ok), sig.bars(4), sig.level(3, 8), sig.count(5)],
+    tr: [sig.dir(220), sig.level(7, 8), sig.trend(Trend.Fall), sig.glyph("moon")],
   };
   const sheet = (...modules) => ui.show(fill(tilegrid(...modules)));
   const price = [1.1, 0.9, 0.5, 0.42, 0.41, 0.55, 0.9, 1.4, 1.8, 1.6, 1.3, 1.2, 1.1, 1.0, 1.1, 1.3, 1.7, 2.05, 1.9, 1.6, 1.4, 1.2, 1.1, 1.0];
@@ -64,11 +66,11 @@
     live() {
       const fmtT = (t) => new Date(t).toTimeString().slice(0, 8);
       sheet(
-        place(tile("sys · load", feed("sys.load", (v) => bignum(num(v, 2))), { glyph: "cpu", count: ["up ", feed("sys.uptime", upfmt)] }), "1 / 1 / 2 / 3"),
-        place(tile("sys · memory", feed("mem.pct", (v) => readouts([{ label: "RAM", value: v, text: String(v), unit: "%" }])), { glyph: "memory", count: "feeds/machine.py" }), "1 / 3 / 2 / 5"),
-        place(tile("Wi-Fi", feed(["wifi.bars", "wifi.rssi"], ([b, r]) => div({ style: "display:flex;gap:10px;align-items:center;font:600 17px var(--sans)" }, sigil("bars", b ?? 0, 24), r != null ? ui.h("small", r + " dBm") : "")), { glyph: "wifi", count: "feeds/wifi.sh · 15 s" }), "1 / 5 / 2 / 7"),
-        place(tile("beat clock", feed("link.server", (l) => { const b = ui.beats(); return lines([["tick", "1 s", "timers"], ["beat", b.cadence.beat / 1000 + " s", "live data"], ["slow", b.cadence.slow / 60000 + " min", "weather"], ["last", b.lastFlush ? fmtT(b.lastFlush) : "–", b.flushes + " batches"], ["link", l, b.bindings + " bound"]]); }, { always: true }), { glyph: "clock", tone: "list", count: "one batch per beat = one repaint" }), "2 / 1 / 4 / 4"),
-        place(tile("feeds", feed("link.server", () => div("see GET /feeds"), { always: true }), { glyph: "wave", tone: "list", count: "machine · net · wifi · weather · power · lists" }), "2 / 4 / 4 / 7"),
+        place(tile("sys · load", feed(K.sys.load, (v) => bignum(fmt.num(v, 2))), { glyph: "cpu", count: ["up ", feed(K.sys.uptime, (s) => fmt.uptime(s))] }), "1 / 1 / 2 / 3"),
+        place(tile("sys · memory", feed(K.mem.pct, (v) => readouts([{ label: "RAM", value: v ?? 0, text: String(v), unit: "%" }])), { glyph: "memory", count: "feeds/machine.py" }), "1 / 3 / 2 / 5"),
+        place(tile("Wi-Fi", feed([K.wifi.bars, K.wifi.rssi], ([bars, rssi]) => div({ style: "display:flex;gap:10px;align-items:center;font:600 17px var(--sans)" }, sigil(sig.bars(bars ?? 0), 24), rssi != null ? ui.h("small", rssi + " dBm") : "")), { glyph: "wifi", count: "feeds/wifi.sh · 15 s" }), "1 / 5 / 2 / 7"),
+        place(tile("beat clock", feed(K.link.server, (l) => { const b = ui.beats(); return lines([["tick", "1 s", "timers"], ["beat", b.cadence.beat / 1000 + " s", "live data"], ["slow", b.cadence.slow / 60000 + " min", "weather"], ["last", b.lastFlush ? fmtT(b.lastFlush) : "–", b.flushes + " batches"], ["link", Link[l] ?? "–", b.bindings + " bound"]]); }, { always: true }), { glyph: "clock", tone: "list", count: "one batch per beat = one repaint" }), "2 / 1 / 4 / 4"),
+        place(tile("feeds", feed(K.link.server, () => div("see GET /feeds"), { always: true }), { glyph: "wave", tone: "list", count: "machine · net · wifi · weather · power · lists" }), "2 / 4 / 4 / 7"),
       );
     },
 
@@ -167,7 +169,7 @@
   // The real screens (crates/ui/ts/screens.ts) are the tabs along the bottom of the display; the rest of this page is the gallery of
   // sample layouts. ?screen=energy shows a real one (default home), ?scene=console a gallery one.
   const sample = scenes[sp.get("scene")] ? sp.get("scene") : null;
-  const name = sample ?? (ui.screens().includes(sp.get("screen")) ? sp.get("screen") : ui.screens()[0]);
+  const name = sample ?? (ui.screenIds().includes(sp.get("screen")) ? sp.get("screen") : ui.screenIds()[0]);
   const ek = sp.get("eink");
   // layout depends on the fonts, so nothing is built (or measured) until they are loaded
   ui.ready().then(() => {
@@ -177,8 +179,9 @@
       scenes[sample]();
       if (sample !== "icons") ui.frame({ title: sample + " · sample", sheet: `${Object.keys(scenes).indexOf(sample) + 1}/${Object.keys(scenes).length}`, ...SIG });
     } else {
-      ui.set("ui.hold", 0);        // a preview stays on the screen you asked for
-      ui.shell(name);
+      ui.set(K.ui.hold, 0);        // a preview stays on the screen you asked for
+      ui.shell();
+      ui.go(name, { hold: 0 });
     }
     fit();
     showFit();
@@ -187,7 +190,7 @@
   // ---- navigation (outside the screen): the real screens, then the gallery
   const navEl = document.getElementById("scenenav");
   const gotoScreen = (n) => fetch(`/screen?name=${encodeURIComponent(n)}&hold=0`, { method: "POST" });   // the server's key: what voice would write
-  const mark = () => navEl.querySelectorAll("a[data-screen]").forEach((a) => a.classList.toggle("on", !sample && a.dataset.screen === ui.current()));
+  const markNav = () => navEl.querySelectorAll("a[data-screen]").forEach((a) => a.classList.toggle("on", !sample && a.dataset.screen === ui.current()));
   const link = (label, key, val, on) => {
     const q = new URLSearchParams(); q.set(key, val);
     const a = document.createElement("a"); a.href = "?" + q; a.textContent = label; if (on) a.className = "on";
@@ -198,12 +201,12 @@
     }
     navEl.append(a);
   };
-  for (const n of ui.screens()) link(n, "screen", n, !sample && n === name);
+  for (const n of ui.screenIds()) link(n, "screen", n, !sample && n === name);
   const sep = document.createElement("span"); sep.textContent = "|"; sep.style.opacity = ".4"; navEl.append(sep);
   for (const n of Object.keys(scenes)) link(n, "scene", n, n === sample);
-  addEventListener("ui:screen", mark);
+  addEventListener("ui:screen", markNav);
   // 1-7 switch screens too (preview only: the panel itself takes no input)
-  addEventListener("keydown", (e) => { const n = ui.screens()[Number(e.key) - 1]; if (n && !sample && !e.metaKey && !e.ctrlKey) gotoScreen(n); });
+  addEventListener("keydown", (e) => { const n = ui.screenIds()[Number(e.key) - 1]; if (n && !sample && !e.metaKey && !e.ctrlKey) gotoScreen(n); });
   if (!sample && sp.get("screen")) gotoScreen(sp.get("screen"));   // ?screen=energy wins over whatever the server last showed
 
   // ---- fit indicator: the screen always contains the scene; this says how --------------

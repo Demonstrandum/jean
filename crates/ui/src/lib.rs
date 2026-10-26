@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+pub mod docs;
+
 use oxc::allocator::Allocator;
 use oxc::codegen::Codegen;
 use oxc::parser::Parser;
@@ -12,8 +14,20 @@ use oxc::transformer::{TransformOptions, Transformer};
 
 /// The TypeScript source, embedded at compile time.
 pub const SOURCE: &str = include_str!("../ts/ui.ts");
-/// The real screens (HOME, DAY, WEATHER, ENERGY, LISTS, CLAUDE, SYSTEM): registered after the kit loads.
-pub const SCREENS: &str = include_str!("../ts/screens.ts");
+/// The data schema: typed keys, enums, structures and the typed functions over them (`K`, `fmt`, `calendar`, ...).
+pub const SCHEMA: &str = include_str!("../ts/schema.ts");
+
+/// The screens the display starts with, as journaled evals: `(file name, TypeScript)`. The server applies them, one change each,
+/// when the journal is empty; after that the journal is the truth and the agent edits screens with `ui.defineScreen` / `patchTile`.
+pub const SEEDS: [(&str, &str); 7] = [
+    ("10-home.ts", include_str!("../seed/10-home.ts")),
+    ("20-day.ts", include_str!("../seed/20-day.ts")),
+    ("30-weather.ts", include_str!("../seed/30-weather.ts")),
+    ("40-energy.ts", include_str!("../seed/40-energy.ts")),
+    ("50-lists.ts", include_str!("../seed/50-lists.ts")),
+    ("60-claude.ts", include_str!("../seed/60-claude.ts")),
+    ("70-system.ts", include_str!("../seed/70-system.ts")),
+];
 
 /// Strip TypeScript types from `src` and return plain JS.
 pub fn strip_types(src: &str, filename: &str) -> Result<String, String> {
@@ -67,14 +81,24 @@ pub fn strip_eval(src: &str) -> Result<String, String> {
     Ok(js.replace("export {};", ""))
 }
 
-/// The kit followed by the real screens, as one injectable script.
+/// The kit followed by the schema, as one injectable script.
 pub fn js() -> Result<String, String> {
-    bundle_all(SOURCE, SCREENS)
+    bundle_all(SOURCE, SCHEMA)
 }
 
-/// `ui.ts` and `screens.ts` sources bundled in order (the screens use the globals the kit installs).
-pub fn bundle_all(ui_src: &str, screens_src: &str) -> Result<String, String> {
-    Ok(format!("{}{}", bundle(ui_src)?, bundle(screens_src)?))
+/// `ui.ts` and `schema.ts` bundled in order (the schema uses what the kit installs on `window`).
+pub fn bundle_all(ui_src: &str, schema_src: &str) -> Result<String, String> {
+    Ok(format!("{}{}", bundle(ui_src)?, bundle(schema_src)?))
+}
+
+/// Every seed as plain JS, in order (types stripped, no wrapping): what the gallery page runs directly.
+pub fn seeds_js() -> Result<String, String> {
+    let mut out = String::new();
+    for (name, src) in SEEDS {
+        out.push_str(&strip_eval(src).map_err(|e| format!("{name}: {e}"))?);
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -86,7 +110,8 @@ mod tests {
         let js = js().expect("ui.ts should compile");
         assert!(js.contains("window.ui"), "installs the ui object");
         assert!(js.contains("data-dropped"), "has the guaranteed-fit machinery");
-        assert!(js.contains("defineScreen(\"energy\""), "ships the real screens");
+        assert!(js.contains("defineScreen"), "has the screen registry");
+        assert!(js.contains("calendar"), "ships the schema");
         assert!(!js.contains("OverflowError"), "size is never an error");
         assert!(!js.contains("export "), "no module syntax left");
         assert!(!js.contains("declare global"), "types are gone");
@@ -109,6 +134,14 @@ mod tests {
         let js = strip_eval("const n: number = 1; ui.show(p(String(n)));").unwrap();
         assert!(!js.contains(": number"), "{js}");
         assert!(js.starts_with("const n"), "no IIFE, so const persists: {js}");
+    }
+
+    #[test]
+    fn every_seed_compiles() {
+        let js = seeds_js().expect("seeds compile");
+        for id in ["home", "day", "weather", "energy", "lists", "claude", "system"] {
+            assert!(js.contains(&format!("id: \"{id}\"")), "seed for {id}");
+        }
     }
 
     #[test]

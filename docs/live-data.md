@@ -1,5 +1,7 @@
 # Live data and the beat
 
+> Values are typed keys now (`K.wx.temp`) with typed enums and epoch-ms instants, declared in `crates/ui/ts/schema.ts`; the examples below that use `"wx.temp"`-style names show the wire names feeds write. See `docs/agent.md`.
+
 E-ink refreshes are slow and visible, so nothing on the page updates on its own schedule.
 
 ## The beat (page, `ui.ts`)

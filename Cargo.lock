@@ -2236,6 +2236,7 @@ name = "ui"
 version = "0.1.0"
 dependencies = [
  "oxc",
+ "serde_json",
 ]
 
 [[package]]

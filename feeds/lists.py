@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The shopping list from data/groceries.json (Claude edits it on request); the calendar is feeds/calendar.py.
-Keys: shop.items ([{text, qty, done}]) shop.open (count not done); notes.items ([{text, due}]) notes.open, from data/notes.json."""
+Writes K.shop.items [{text, qty, done}] and K.notes.items [{text, due}] (crates/ui/ts/schema.ts) from data/groceries.json and data/notes.json."""
 import datetime, json, os, time, zoneinfo
 from _lib import ROOT, config, put, log
 
@@ -50,7 +50,7 @@ def shopping():
     if s is None:
         return {}
     items = [{"text": i["text"], "qty": i.get("qty", ""), "done": bool(i.get("done"))} for i in s.get("items", [])]
-    return {"shop.items": items, "shop.open": sum(1 for i in items if not i["done"])}
+    return {"shop.items": items}
 
 
 def notes():
@@ -58,7 +58,7 @@ def notes():
     if n is None:
         return {}
     items = [{"text": i["text"], "due": i.get("due", "")} for i in n.get("items", []) if not i.get("done")]
-    return {"notes.items": items, "notes.open": len(items)}
+    return {"notes.items": items}
 
 
 if __name__ == "__main__":

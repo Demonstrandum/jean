@@ -328,7 +328,7 @@ const md = (src: string) => {
 // Icons: 24x24 grid, rounded strokes, drawn heavy so they survive 1-bit dithering.
 const circ = (cx: number, cy: number, r: number) => `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`;
 // Icons: Lucide v0.469.0 (https://lucide.dev, ISC licence), 24x24, stroked. Each value is the inner SVG markup.
-const ICON_PATHS: Record<string, string> = {
+const ICON_PATHS = {
   sun: "<circle cx=\"12\" cy=\"12\" r=\"4\"/> <path d=\"M12 2v2\"/> <path d=\"M12 20v2\"/> <path d=\"m4.93 4.93 1.41 1.41\"/> <path d=\"m17.66 17.66 1.41 1.41\"/> <path d=\"M2 12h2\"/> <path d=\"M20 12h2\"/> <path d=\"m6.34 17.66-1.41 1.41\"/> <path d=\"m19.07 4.93-1.41 1.41\"/>",
   moon: "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>",
   cloud: "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>",
@@ -391,6 +391,8 @@ const ICON_PATHS: Record<string, string> = {
   "sigil-c": '<path d="M3 3h18v18H3zM8 8v8h8"/>',
   plusbox: '<path d="M4 4h16v16H4zM12 8v8M8 12h8"/>',
 };
+/** The built-in icon names. */
+type IconName = keyof typeof ICON_PATHS;
 const ICON_FILLED = new Set<string>(); // line art only; pass {fill:true} for a solid one
 
 const svgIcon = (inner: string, size: number | string, stroke = 1.5) => {
@@ -419,7 +421,7 @@ const iconBox = (name: string): [number, number, number, number] => {
   return (iconBoxes[name] = [b.x, b.y, b.width, b.height]);
 };
 
-const icon = (name: string, o: { size?: number; fill?: boolean; stroke?: number } = {}) => {
+const icon = (name: IconName, o: { size?: number; fill?: boolean; stroke?: number } = {}) => {
   const d = ICON_PATHS[name];
   if (!d) return h("span", { class: "icon glyph", style: o.size ? { fontSize: `${o.size}px` } : "" }, name);
   const filled = o.fill ?? ICON_FILLED.has(name);
@@ -542,14 +544,22 @@ const minutes = (hm: string) => {
   const [a, b] = hm.split(":").map(Number);
   return a * 60 + b;
 };
+/** Minutes after local midnight of an instant (epoch ms): the older components also take an "HH:MM" text. */
+const toMinutes = (t: number | string): number => {
+  if (typeof t === "string") return minutes(t);
+  const d = new Date(t);
+  return d.getHours() * 60 + d.getMinutes();
+};
+/** Minutes after midnight as "HH:MM". */
+const hhmm = (m: number): string => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`;
 
 /** Sunrise to sunset arc with the sun where it is now. Times are "HH:MM". */
-const sunArc = (o: { rise: string; set: string; now?: string; w?: number }) => {
+const sunArc = (o: { rise: number | string; set: number | string; now?: number | string; w?: number }) => {
   const w = o.w ?? 360, hgt = 112, pad = 22, base = hgt - 10, rx = (w - 2 * pad) / 2, ry = base - 16, cx = w / 2;
   const d = new Date();
-  const now = o.now ?? `${d.getHours()}:${d.getMinutes()}`;
-  const r0 = minutes(o.rise), r1 = minutes(o.set);
-  const f = (minutes(now) - r0) / (r1 - r0);
+  const now = o.now ?? Date.now();
+  const r0 = toMinutes(o.rise), r1 = toMinutes(o.set);
+  const f = (toMinutes(now) - r0) / (r1 - r0);
   const day = f >= 0 && f <= 1;
   const pt = (t: number) => [cx - rx * Math.cos(Math.PI * t), base - ry * Math.sin(Math.PI * t)];
   const pts = (a: number, b: number) =>
@@ -637,7 +647,7 @@ const moon = (phase: number, size = 64) => {
 // ------------------------------------------- modules: tiles, dials, rulers
 
 /** A launcher-style module: label top-left, something in the middle, a count bottom-left. */
-const tile = (label: string, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: string; waves?: boolean | Parameters<typeof waves>[0]; back?: Node } = {}) =>
+const tile = (label: string, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: IconName; waves?: boolean | Parameters<typeof waves>[0]; back?: Node } = {}) =>
   h("section", { class: `tile${o.inverted ? " inv" : ""}${o.bleed ? " bleed" : ""}${o.waves ? " has-waves" : ""}${o.back ? " has-back" : ""}${o.tone ? " " + o.tone : ""}` },
     o.waves ? waves(o.waves === true ? {} : o.waves) : null,
     o.back ? h("div", { class: "tile-back" }, o.back) : null,
@@ -749,6 +759,18 @@ const levelTile = (label: string, level: number, text?: Child) => {
     h("div", { class: "tile-count" }, h("span", { class: "chip" }, text ?? `${Math.round(p * 100)}%`)));
 };
 
+/** The silhouette of a usage history, held between samples (capacity = full height): a `back` for a tile with tone "usage". */
+const usageFill = (values: readonly number[], cap: number): HTMLElement => {
+  const n = Math.max(1, values.length), pts: string[] = [];
+  values.forEach((v, i) => {
+    const y = ((1 - Math.max(0, Math.min(1, v / cap))) * 100).toFixed(2);
+    pts.push(`${((i / n) * 100).toFixed(2)}% ${y}%`, `${(((i + 1) / n) * 100).toFixed(2)}% ${y}%`);
+  });
+  return h("div", { class: "fillcurve", style: { clipPath: `polygon(0% 100%, ${pts.join(", ")}, 100% 100%)` } });
+};
+/** A number written over a fill (inverted against what is behind it): the `count` of a usage tile. */
+const chip = (text: Child): HTMLElement => h("span", { class: "chip" }, text);
+
 /**
  * A minimal box filled from the bottom up to a history curve (held between samples): the capacity is the
  * full height, so the silhouette IS the usage over time. A number sits inside. Pair it with a chart.
@@ -769,15 +791,15 @@ const usageTile = (label: string, values: number[], cap: number, text: Child, o:
  * A 24-hour donut: noon at the top, midnight at the bottom. The night stretch is solid, the
  * day stretch open, and a marker sits where "now" is. Times are "HH:MM".
  */
-const dayDial = (o: { rise: string; set: string; now?: string; size?: number; sub?: string; callouts?: boolean; side?: number }) => {
+const dayDial = (o: { rise: number | string; set: number | string; now?: number | string; size?: number; sub?: string; callouts?: boolean; side?: number }) => {
   const size = o.size ?? 190, T = Math.max(8, Math.round(size * 0.12)), ro = size / 2 - 3, ri = ro - T, R = (ro + ri) / 2, c = size / 2;
   const side = o.callouts ? o.side ?? 96 : 0, W = size + 2 * side;
   const d = new Date();
-  const now = o.now ?? `${d.getHours()}:${d.getMinutes()}`;
+  const now = o.now ?? Date.now();
   const phi = (m: number) => (2 * Math.PI * m) / 1440;
   const P = (m: number, r = R) => [side + c - r * Math.sin(phi(m)), c + r * Math.cos(phi(m))];
   const f = (n: number) => n.toFixed(1);
-  const r0 = minutes(o.rise), r1 = minutes(o.set), nm = minutes(now), tw = 75;
+  const r0 = toMinutes(o.rise), r1 = toMinutes(o.set), nm = toMinutes(now), tw = 75;
   const deg = (m: number) => ((Math.max(0, Math.min(1440, m)) / 1440) * 360).toFixed(1);
   // midnight at the bottom, time running clockwise: dark at night, light by day, and the twilights blend smoothly
   const grad = `conic-gradient(from 180deg, #000 0deg, #000 ${deg(r0 - tw)}deg, #fff ${deg(r0 + tw)}deg, #fff ${deg(r1 - tw)}deg, #000 ${deg(r1 + tw)}deg, #000 360deg)`;
@@ -790,8 +812,8 @@ const dayDial = (o: { rise: string; set: string; now?: string; size?: number; su
   if (o.callouts) {
     const mid = (r0 + r1) / 2;
     const list: [string, string, number, "l" | "r"][] = [
-      ["SUNRISE", o.rise, r0, "l"], ["SUNSET", o.set, r1, "r"], ["NOW", now, nm, "r"],
-      ["SOLAR NOON", `${String(Math.floor(mid / 60)).padStart(2, "0")}:${String(Math.round(mid % 60)).padStart(2, "0")}`, mid, "l"],
+      ["SUNRISE", hhmm(r0), r0, "l"], ["SUNSET", hhmm(r1), r1, "r"], ["NOW", hhmm(nm), nm, "r"],
+      ["SOLAR NOON", hhmm(mid), mid, "l"],
     ];
     for (const [name, val, m, sd] of list) {
       const [tx, ty] = P(m), edge = sd === "l" ? 2 : W - 2;
@@ -804,7 +826,7 @@ const dayDial = (o: { rise: string; set: string; now?: string; size?: number; su
   el.innerHTML = `<div class="ring" style="left:${side}px;width:${size}px;height:${size}px;background:${grad};-webkit-mask:${mask};mask:${mask}"></div>
     <svg width="${W}" height="${size}" viewBox="0 0 ${W} ${size}" fill="none" stroke="currentColor" style="position:absolute;inset:0">
     <circle cx="${side + c}" cy="${c}" r="${ro}" stroke-width="0.8"/><circle cx="${side + c}" cy="${c}" r="${ri}" stroke-width="0.8"/>${marker}${notes}</svg>`;
-  const [hh, mm] = now.split(":").map(Number);
+  const hh = Math.floor(nm / 60), mm = nm % 60;
   el.append(h("div", { class: "mid", style: { left: `${side}px`, width: `${size}px`, right: "auto" } }, h("b", { style: { fontSize: `${Math.max(12, Math.round(size * 0.19))}px` } }, `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`), o.sub && h("small", o.sub)));
   return el;
 };
@@ -1029,7 +1051,9 @@ const sigPaths = (kind: SigKind, v: any): string => {
 };
 
 /** One sigil as an inline element (use it next to text, in a table cell, in a module label). */
-const sigil = (kind: SigKind, v?: any, size = 12) => {
+const sigil = (kindOrMark: SigKind | SigMark, v?: any, size = 12) => {
+  if (typeof kindOrMark === "object") return sigil(kindOrMark.kind, kindOrMark.v, typeof v === "number" ? v : size);   // sigil(sig.state(State.Ok), 11)
+  const kind = kindOrMark;
   const el = h("span", { class: "icon sig", title: `${kind} ${Array.isArray(v) ? v.join("/") : v ?? ""}` });
   el.innerHTML = `<svg viewBox="0 0 12 12" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter">${sigPaths(kind, v)}</svg>`;
   return el;
@@ -1089,14 +1113,15 @@ const toneStrip = (steps = 16) =>
   h("div", { class: "tonestrip" },
     Array.from({ length: steps }, (_, i) => h("i", { style: { background: `hsl(0 0% ${Math.round((i / (steps - 1)) * 100)}%)` } })));
 
-type Stop = { at: string; to?: string; name: string };
+type Stop = { at: number | string; to?: number | string; name: string };
 /**
  * Lanes drawn like a timetable diagram: each lane a ruled line in its own style, events as nodes with the
  * time above and the name below, a span as a thick segment, a "now" line. `links` join two lanes at a time.
  */
-const routes = (o: { from: string; to: string; now?: string; w?: number; lanes: { label: string; look?: "solid" | "dash" | "dot" | "double"; stops: Stop[] }[]; links?: [number, string, number][] }) => {
+/** A route diagram of the day: lanes of stops/spans along a time axis. `from`, `to`, `now` and each stop's `at`/`to` are instants (epoch ms), or "HH:MM" text. */
+const routes = (o: { from: number | string; to: number | string; now?: number | string; w?: number; lanes: { label: string; look?: "solid" | "dash" | "dot" | "double"; stops: Stop[] }[]; links?: [number, number | string, number][] }) => {
   const W = o.w ?? 732, LW = 74, laneH = 50, top = 22, mono = `style="font:600 10px var(--mono)"`, name = `style="font:700 11px var(--mono)"`;
-  const t0 = minutes(o.from), t1 = minutes(o.to), X = (m: string | number) => LW + (((typeof m === "number" ? m : minutes(m)) - t0) / (t1 - t0)) * (W - LW - 6);
+  const t0 = toMinutes(o.from), t1 = toMinutes(o.to), X = (m: number) => LW + ((m - t0) / (t1 - t0)) * (W - LW - 6);
   const H = top + o.lanes.length * laneH + 22;
   const Y = (i: number) => top + i * laneH + laneH / 2 - 4;
   const dash = { solid: "", dash: 'stroke-dasharray="9 5"', dot: 'stroke-dasharray="1 5" stroke-linecap="round"', double: "" } as const;
@@ -1108,22 +1133,22 @@ const routes = (o: { from: string; to: string; now?: string; w?: number; lanes: 
     g += `<path d="M${LW - 6} ${y}H${W}" stroke-width="${look === "double" ? 5 : 2}" ${dash[look]}/>`;
     if (look === "double") g += `<path d="M${LW - 6} ${y}H${W}" stroke="#fff" stroke-width="2"/>`;
     for (const s of ln.stops) {
-      const x1 = X(s.at), x2 = s.to ? X(s.to) : x1;
-      if (s.to) g += `<path d="M${x1.toFixed(1)} ${y}H${x2.toFixed(1)}" stroke-width="9" stroke-linecap="butt"/>`;
+      const am = toMinutes(s.at), x1 = X(am), x2 = s.to !== undefined ? X(toMinutes(s.to)) : x1;
+      if (s.to !== undefined) g += `<path d="M${x1.toFixed(1)} ${y}H${x2.toFixed(1)}" stroke-width="9" stroke-linecap="butt"/>`;
       g += `<rect x="${(x1 - 4).toFixed(1)}" y="${y - 4}" width="8" height="8" fill="#fff" stroke-width="2"/>`;
-      if (s.to) g += `<rect x="${(x2 - 4).toFixed(1)}" y="${y - 4}" width="8" height="8" fill="#fff" stroke-width="2"/>`;
-      g += `<text x="${x1.toFixed(1)}" y="${y - 10}" text-anchor="middle" ${mono} fill="currentColor" stroke="none">${escHtml(s.at)}</text>`;
+      if (s.to !== undefined) g += `<rect x="${(x2 - 4).toFixed(1)}" y="${y - 4}" width="8" height="8" fill="#fff" stroke-width="2"/>`;
+      g += `<text x="${x1.toFixed(1)}" y="${y - 10}" text-anchor="middle" ${mono} fill="currentColor" stroke="none">${escHtml(hhmm(am))}</text>`;
       g += `<text x="${((x1 + x2) / 2).toFixed(1)}" y="${y + 21}" text-anchor="middle" ${name} fill="currentColor" stroke="none">${escHtml(s.name)}</text>`;
     }
   });
   for (const [a, m, b] of o.links ?? []) {
-    const x = X(m);
+    const x = X(toMinutes(m));
     g += `<path d="M${x.toFixed(1)} ${Y(a)}V${Y(b)}" stroke-width="1.5"/><circle cx="${x.toFixed(1)}" cy="${Y(a)}" r="4" fill="currentColor"/><circle cx="${x.toFixed(1)}" cy="${Y(b)}" r="4" fill="currentColor"/>`;
   }
   for (let m = Math.ceil(t0 / 60) * 60; m <= t1; m += 60)
     if ((m / 60) % 2 === 0) g += `<text x="${X(m).toFixed(1)}" y="${H - 6}" text-anchor="middle" ${mono} fill="currentColor" stroke="none">${String(m / 60).padStart(2, "0")}</text>`;
   if (o.now) {
-    const nx = X(o.now);
+    const nx = X(toMinutes(o.now));
     g += `<path d="M${nx.toFixed(1)} ${top - 8}V${H - 20}" stroke-width="2" stroke-dasharray="3 3"/><rect x="${(nx - 32).toFixed(1)}" y="0" width="64" height="13" fill="currentColor" stroke="none"/><text x="${nx.toFixed(1)}" y="10" text-anchor="middle" ${mono} fill="#fff" stroke="none">NOW ${escHtml(o.now)}</text>`;
   }
   const el = h("div", { class: "routes" });
@@ -1197,10 +1222,10 @@ const dotClock = (o: { time?: string; pitch?: number } = {}) => {
 };
 
 /** The 24 hours as a ruler: night hatched, day open, a marker where "now" is. Times "HH:MM". */
-const dayStrip = (o: { rise: string; set: string; now?: string; w?: number }) => {
+const dayStrip = (o: { rise: number | string; set: number | string; now?: number | string; w?: number }) => {
   const W = o.w ?? 720, H = 58, x = (m: number) => (m / 1440) * W;
   const d = new Date(), id = `hz${++svgSeq}`;
-  const r = minutes(o.rise), st = minutes(o.set), nx = x(minutes(o.now ?? `${d.getHours()}:${d.getMinutes()}`));
+  const r = toMinutes(o.rise), st = toMinutes(o.set), nx = x(toMinutes(o.now ?? Date.now()));
   let ticks = "", labels = "";
   for (let hr = 0; hr <= 24; hr++) ticks += `M${x(hr * 60).toFixed(1)} 30V${hr % 6 === 0 ? 42 : 36}`;
   for (const hr of [0, 6, 12, 18, 24])
@@ -1216,12 +1241,12 @@ const dayStrip = (o: { rise: string; set: string; now?: string; w?: number }) =>
   return el;
 };
 
-type Block = { from: string; to: string; label?: string; look?: "solid" | "hatch" | "outline" };
+type Block = { from: number | string; to: number | string; label?: string; look?: "solid" | "hatch" | "outline" };
 /** Lanes of blocks over a time axis (a Gantt strip), with a "now" line. Times "HH:MM". */
 const timeline = (o: { w?: number; from: string; to: string; now?: string; lanes: { label: string; blocks: Block[] }[] }) => {
   const W = o.w ?? 756, LW = 96, laneH = 44, gap = 10, axis = 32;
-  const t0 = minutes(o.from), t1 = minutes(o.to);
-  const X = (hm: string | number) => LW + (((typeof hm === "number" ? hm : minutes(hm)) - t0) / (t1 - t0)) * (W - LW);
+  const t0 = toMinutes(o.from), t1 = toMinutes(o.to);
+  const X = (hm: string | number) => LW + (((typeof hm === "number" ? hm : toMinutes(hm)) - t0) / (t1 - t0)) * (W - LW);
   const H = o.lanes.length * (laneH + gap) + axis, id = `hz${++svgSeq}`;
   const mono = `style="font:600 13px var(--mono)"`, body = `style="font:700 16px var(--body)"`;
   let g = "";
@@ -1343,11 +1368,16 @@ const bignum = (text: Child, o: { unit?: string; chars?: number } = {}) => {
   return h("div", { class: "bignum", style: { "--chars": String(Math.max(1, chars)) } }, text, o.unit && h("small", o.unit));
 };
 
-const place = <T extends HTMLElement>(node: T, area: string): T => {
-  node.set({ style: { gridArea: area } });
-  const m = area.match(/^\s*(\d+)\s*\/\s*(\d+)/); // "row / col / ..." names the cell like a drawing zone, e.g. B2
+/**
+ * Put a module in a zone of the sheet: place(node, zone(Z.A3, Z.B3)). The tile's corner shows the zone's top-left address.
+ * (A CSS grid-area string is still accepted, for the gallery's old samples; use zones.)
+ */
+const place = <T extends HTMLElement>(node: T, area: Zone | string): T => {
+  const z = typeof area === "string" ? null : area;
+  node.set({ style: { gridArea: z ? zoneArea(z) : area } });
+  const m = typeof area === "string" ? area.match(/^\s*(\d+)\s*\/\s*(\d+)/) : null;
   const id = node.querySelector(".tile-id");
-  if (m && id) id.textContent = String.fromCharCode(64 + Number(m[2])) + m[1];
+  if (id) id.textContent = z ? zoneName(z) : m ? String.fromCharCode(64 + Number(m[2])) + m[1] : "";
   return node;
 };
 
@@ -1444,42 +1474,189 @@ const band = (edge: "top" | "bottom" | "mid", ...a: Arg[]) => h("div", { class: 
 const giant = (value: Child, o: { size?: number; unit?: string } = {}) =>
   h("div", { class: "giant", style: { "--size": `${o.size ?? 240}px` } }, value, o.unit && h("small", o.unit));
 
-type SigList = [SigKind, any?][] | (() => [SigKind, any?][]);
-// ------------------------------------------------ screens and the tab bar
-// A screen is a named function that builds the whole scene. The set of screens is the tab bar along the bottom of the display; switching
-// is `ui.go("energy")` or, from outside, writing the key "ui.screen" (POST /screen?name=energy): immediate, never journaled.
-// A non-home screen returns home after `hold` ms (key "ui.hold", default 2 min) so the wall display never gets stuck on a visitor's request.
+/** Sigils for a corner cluster: sig.* values (or the legacy [kind, value] pairs), or a function returning them (re-read at every redraw). */
+type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark | [SigKind, any?])[]);
+// ------------------------------------------------ typed marks: sigils without strings
+/** A sigil's meaning for a state mark. */
+enum State { Ok, Idle, Warn, Err, Unknown }
+/** A sigil's meaning for a trend mark: slow arrows (Up/Down/Flat) and steep ones (Rise/Fall). */
+enum Trend { Up, Down, Flat, Rise, Fall }
+/** One sigil as data (what to draw), made by the `sig` constructors and drawn by `sigil(mark, size)` or by the frame's corner clusters. */
+interface SigMark { readonly kind: SigKind; readonly v: unknown }
+const STATE_WIRE: Record<State, string> = { [State.Ok]: "ok", [State.Idle]: "idle", [State.Warn]: "warn", [State.Err]: "err", [State.Unknown]: "?" };
+const TREND_WIRE: Record<Trend, string> = { [Trend.Up]: "up", [Trend.Down]: "down", [Trend.Flat]: "flat", [Trend.Rise]: "rise", [Trend.Fall]: "fall" };
+/** Typed constructors for sigils: sig.state(State.Ok), sig.level(7, 8), sig.trend(Trend.Fall), sig.age(minutes), sig.count(n), sig.dir(degrees), sig.bars(0..4), sig.glyph(icon). */
+const sig = {
+  /** A solid, open, half-filled or crossed square. */
+  state: (s: State): SigMark => ({ kind: "state", v: STATE_WIRE[s] }),
+  /** A square tank filled from the bottom: value of max. */
+  level: (value: number, max = 8): SigMark => ({ kind: "level", v: [value, max] }),
+  trend: (t: Trend): SigMark => ({ kind: "trend", v: TREND_WIRE[t] }),
+  /** A one-hand clock in a square: minutes since the data was fresh (60 or more draws dashed, stale). */
+  age: (minutes: number): SigMark => ({ kind: "age", v: minutes }),
+  /** Dice faces 1..6, a plus beyond. */
+  count: (n: number): SigMark => ({ kind: "count", v: n }),
+  /** A rotated arrow: degrees, 0 = up. */
+  dir: (degrees: number): SigMark => ({ kind: "dir", v: degrees }),
+  /** Signal bars, 0..4. */
+  bars: (n: number): SigMark => ({ kind: "bars", v: n }),
+  glyph: (name: IconName): SigMark => ({ kind: "glyph", v: name }),
+};
 
-interface ScreenDef { name: string; tab: string; build: () => void }
-const screenDefs = new Map<string, ScreenDef>();
-let currentScreen: string | null = null, screenJobs: number[] = [], returnTimer: number | undefined;
-let homeScreen = "home";
+// ------------------------------------------------ zones: where a tile goes
+// The frame labels the 6 x 3 sheet like a drawing: columns A-F across, rows 1-3 down. A zone is a block of cells, by typed
+// constants, never by a coordinate string: zone(Z.A3, Z.B3) is the two cells at the bottom left.
+
+/** The sheet's columns, left to right. */
+enum Col { A, B, C, D, E, F }
+/** The sheet's rows, top to bottom. */
+type Row = 1 | 2 | 3;
+/** One cell of the sheet. */
+interface Cell { readonly col: Col; readonly row: Row }
+/** A rectangle of cells, both corners inclusive. */
+interface Zone { readonly from: Cell; readonly to: Cell }
+/** The names Z.A1 ... Z.F3 (a type for the typed constants below). */
+type CellName = `${keyof typeof Col}${Row}`;
+/** Every cell as a constant: Z.A1 ... Z.F3. */
+const Z = {} as Record<CellName, Cell>;
+for (const c of [Col.A, Col.B, Col.C, Col.D, Col.E, Col.F]) for (const r of [1, 2, 3] as Row[]) (Z as any)[`${Col[c]}${r}`] = Object.freeze({ col: c, row: r });
+/** The block of cells between two corners, in any order: zone(Z.A3, Z.B3). One argument is a single cell. */
+const zone = (a: Cell, b: Cell = a): Zone => ({
+  from: { col: Math.min(a.col, b.col) as Col, row: Math.min(a.row, b.row) as Row },
+  to: { col: Math.max(a.col, b.col) as Col, row: Math.max(a.row, b.row) as Row },
+});
+const zoneArea = (z: Zone): string => `${z.from.row} / ${z.from.col + 1} / ${z.to.row + 1} / ${z.to.col + 2}`;   // CSS grid lines: start at the cell's line, end one past the last cell
+/** The address printed in a tile's corner: its top-left cell, e.g. "B2". */
+const zoneName = (z: Zone): string => `${Col[z.from.col]}${z.from.row}`;
+const zonesOverlap = (a: Zone, b: Zone): boolean => a.from.col <= b.to.col && b.from.col <= a.to.col && a.from.row <= b.to.row && b.from.row <= a.to.row;
+
+// ------------------------------------------------ tiles and screens, as data
+// A screen is a list of tile specs. Because it is data, the agent can change one tile without touching the rest:
+//   ui.screenOf("weather").patchTile("uv", { title: "UV" })      a journaled, verified change
+// `body`, `count` and `back` may be functions: they run when the screen is built (so live bindings are made fresh each time).
+
+/** What a tile region holds: any child, or a function making it when the screen is built. */
+type Body<T extends Child = Child> = T | (() => T);
+/** How a tile is dressed: fill = its body stretches, list = ruled rows, legend = title on the border, iconic = centred icon, usage = filled to a history curve. */
+type TileTone = "fill" | "list" | "legend" | "iconic" | "usage";
+interface TileSpec {
+  /** Stable identifier, unique within the screen: how you address the tile later. */
+  readonly id: string;
+  readonly at: Zone;
+  readonly title: string;
+  readonly glyph?: IconName;
+  readonly tone?: TileTone | readonly TileTone[];
+  readonly inverted?: boolean;
+  readonly body?: Body;
+  /** The line under the body. */
+  readonly count?: Body;
+  /** A layer behind the whole tile (a curve, a gradient). */
+  readonly back?: Body<Node>;
+  readonly waves?: boolean | Parameters<typeof waves>[0];
+  /** No tile chrome (no border, title or count): just the body, centred in its zone. */
+  readonly frameless?: boolean;
+}
+interface ScreenSpec {
+  /** Identifier, unique: what `ui.go` and the server's `POST /screen?name=` take. */
+  readonly id: string;
+  /** The tab label. Omit it for a hidden screen (still reachable, not on the bar). */
+  readonly tab?: string;
+  readonly tiles: readonly TileSpec[];
+}
+/** The handle `defineScreen` returns: read and change a screen's tiles one at a time. */
+interface ScreenHandle {
+  readonly id: string;
+  tiles(): readonly TileSpec[];
+  tile(id: string): TileSpec | undefined;
+  /** Add a tile, or replace the one with the same id. */
+  setTile(spec: TileSpec): void;
+  /** Change fields of one tile. */
+  patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): void;
+  removeTile(id: string): void;
+}
+
+interface ScreenState { id: string; tab: string; tiles: readonly TileSpec[] }
+let screenDefs = new Map<string, ScreenState>();
+let currentScreen: string | null = null, screenJobs: number[] = [], returnTimer: number | undefined, homeScreen: string | null = null;
+const touchedScreens = new Set<string>();
 const HOLD_DEFAULT = 120_000;
 
-/** Register a screen. `tab` is its label in the tab bar (omit to leave it off the bar: a hidden screen). The first one is home. */
-function defineScreen(name: string, build: () => void, o: { tab?: string; hidden?: boolean } = {}): void {
-  if (!screenDefs.size) homeScreen = name;
-  screenDefs.set(name, { name, tab: o.hidden ? "" : o.tab ?? name.toUpperCase(), build });
+const toneClass = (t: TileSpec["tone"]): string | undefined => (t === undefined ? undefined : Array.isArray(t) ? t.join(" ") : (t as string));
+const resolveBody = <T extends Child>(b: Body<T> | undefined): T | undefined => (typeof b === "function" ? (b as () => T)() : b);
+
+/** Make one tile from its spec. */
+const tileFrom = (s: TileSpec): HTMLElement => {
+  if (s.frameless) { const bare = center(resolveBody(s.body)); bare.dataset.tile = s.id; return place(bare, s.at); }
+  const node = tile(s.title, resolveBody(s.body), { count: resolveBody(s.count), inverted: s.inverted, tone: toneClass(s.tone), glyph: s.glyph, waves: s.waves, back: resolveBody(s.back) });
+  node.dataset.tile = s.id;
+  return place(node, s.at);
+};
+
+function checkTiles(id: string, tiles: readonly TileSpec[]): void {
+  const seen = new Map<string, TileSpec>();
+  for (const t of tiles) {
+    if (seen.has(t.id)) throw new Error(`screen "${id}": two tiles are called "${t.id}"`);
+    if (t.at.from.col > t.at.to.col || t.at.from.row > t.at.to.row) throw new Error(`screen "${id}": tile "${t.id}" has an inverted zone`);
+    for (const o of seen.values()) if (zonesOverlap(o.at, t.at)) throw new Error(`screen "${id}": tiles "${o.id}" and "${t.id}" overlap at ${zoneName(t.at)}`);
+    seen.set(t.id, t);
+  }
 }
 
-/** Show a screen now. Its timers and bindings replace the previous screen's. */
-function go(name: string, o: { hold?: number } = {}): boolean {
-  const def = screenDefs.get(name);
-  if (!def) { console.warn("ui.go: no screen named", name, "- have:", [...screenDefs.keys()].join(", ")); return false; }
-  for (const id of screenJobs) jobs.delete(id);                        // the old screen's timers die with it
+/** Build a screen's DOM into the scene (its timers replace the previous screen's). */
+function renderScreen(id: string): void {
+  const s = screenDefs.get(id);
+  if (!s) throw new Error(`no screen "${id}"`);
+  for (const j of screenJobs) jobs.delete(j);
   const before = new Set(jobs.keys());
-  def.build();
-  screenJobs = [...jobs.keys()].filter((id) => !before.has(id));
-  currentScreen = name;
+  root.replaceChildren(frag(fill(tilegrid(...s.tiles.map(tileFrom)))));
+  screenJobs = [...jobs.keys()].filter((j) => !before.has(j));
+}
+
+/**
+ * Register a screen, or replace the one with this id. The first screen defined is home. A screen defined while nothing is showing
+ * is shown; redefining the one on show rebuilds it. Overlapping zones or repeated tile ids throw (so the change is rolled back).
+ */
+function defineScreen(spec: ScreenSpec): ScreenHandle {
+  checkTiles(spec.id, spec.tiles);
+  screenDefs.set(spec.id, { id: spec.id, tab: spec.tab ?? "", tiles: [...spec.tiles] });
+  homeScreen ??= spec.id;
+  touchedScreens.add(spec.id);
+  if (currentScreen === null || currentScreen === spec.id) { renderScreen(spec.id); currentScreen = spec.id; if (frameOpts) drawFrame(); adapt(); }
+  else if (frameOpts) drawFrame();
+  return screenHandle(spec.id);
+}
+
+function screenHandle(id: string): ScreenHandle {
+  const st = () => { const s = screenDefs.get(id); if (!s) throw new Error(`no screen "${id}"`); return s; };
+  const write = (tiles: readonly TileSpec[]) => defineScreen({ id, tab: st().tab, tiles });
+  return {
+    id,
+    tiles: () => st().tiles,
+    tile: (tid) => st().tiles.find((t) => t.id === tid),
+    setTile: (spec) => { const t = st().tiles; write(t.some((x) => x.id === spec.id) ? t.map((x) => (x.id === spec.id ? spec : x)) : [...t, spec]); },
+    patchTile: (tid, patch) => {
+      const t = st().tiles, old = t.find((x) => x.id === tid);
+      if (!old) throw new Error(`screen "${id}" has no tile "${tid}"`);
+      write(t.map((x) => (x === old ? { ...old, ...patch } : x)));
+    },
+    removeTile: (tid) => { const t = st().tiles; if (!t.some((x) => x.id === tid)) throw new Error(`screen "${id}" has no tile "${tid}"`); write(t.filter((x) => x.id !== tid)); },
+  };
+}
+
+/** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
+function go(id: string, o: { hold?: number } = {}): boolean {
+  if (!screenDefs.has(id)) { console.warn("ui.go: no screen", id, "- have:", [...screenDefs.keys()].join(", ")); return false; }
+  renderScreen(id);
+  currentScreen = id;
   realClearTimeout(returnTimer);
-  const hold = o.hold ?? (data.get("ui.hold")?.v as number | undefined) ?? HOLD_DEFAULT;
-  if (name !== homeScreen && hold > 0) returnTimer = realSetTimeout(() => go(homeScreen), hold) as unknown as number;
+  const hold = o.hold ?? (data.get(KEY_HOLD.id)?.v as number | undefined) ?? HOLD_DEFAULT;
+  if (id !== homeScreen && hold > 0) returnTimer = realSetTimeout(() => go(homeScreen!), hold) as unknown as number;
   if (frameOpts) drawFrame();
-  window.dispatchEvent(new CustomEvent("ui:screen", { detail: name }));
+  window.dispatchEvent(new CustomEvent("ui:screen", { detail: id }));
+  if (!txOpen) { flush(); log = []; adapt(); }   // navigation is not part of any change
   return true;
 }
-/** Show `name` (or home) unless something is already showing: the page's first paint. */
-const start = (name?: string): void => { if (!currentScreen) go(name ?? homeScreen); };
+
 
 let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean } | null = null, frameHooked = false;
 
@@ -1512,9 +1689,9 @@ function drawFrame(): void {
   });
   // sigils sit in the top corners: left = the machine, right = the world
   const sz = 11, gap = 7, sc = sz / 12;
-  const cluster = (items: [SigKind, any?][], x0: number, dir: 1 | -1) =>
-    items.map(([kind, v], i) => `<g transform="translate(${f(dir === 1 ? x0 + i * (sz + gap) : x0 - (i + 1) * sz - i * gap)} 3) scale(${sc.toFixed(3)})">${sigPaths(kind, v)}</g>`).join("");
-  const items = (l?: SigList) => (typeof l === "function" ? l() : l ?? []);   // a function is re-read at every redraw: live sigils
+  const cluster = (items: readonly (SigMark | [SigKind, any?])[], x0: number, dir: 1 | -1) =>
+    items.map((it, i) => { const [kind, v] = Array.isArray(it) ? it : [(it as SigMark).kind, (it as SigMark).v]; return `<g transform="translate(${f(dir === 1 ? x0 + i * (sz + gap) : x0 - (i + 1) * sz - i * gap)} 3) scale(${sc.toFixed(3)})">${sigPaths(kind, v)}</g>`; }).join("");
+  const items = (l?: SigList): readonly (SigMark | [SigKind, any?])[] => (typeof l === "function" ? l() : l ?? []);   // a function is re-read at every redraw: live sigils
   marks += cluster(items(frameOpts.tl), 28, 1) + cluster(items(frameOpts.tr), w - 26, -1);
   const t = new Date(), clock = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
   const tb = { x: 24, y: hh - 22, w: w - 48, h: 15 };
@@ -1524,7 +1701,7 @@ function drawFrame(): void {
     const clockW = 66, cw = (tb.w - clockW) / tabs.length;
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${f(tb.x + tb.w - clockW)} ${tb.y}v${tb.h}`;
     tabs.forEach((sc, i) => {
-      const x = tb.x + i * cw, on = sc.name === currentScreen;
+      const x = tb.x + i * cw, on = sc.id === currentScreen;
       if (i) d += `M${f(x)} ${tb.y}v${tb.h}`;
       // the layer is blended with "difference": white shows black, and black text on the white block shows white on black
       if (on) marks += `<rect x="${f(x)}" y="${tb.y}" width="${f(cw)}" height="${tb.h}" fill="currentColor" stroke="none"/>`;
@@ -1847,6 +2024,7 @@ const style = h("style", `${fontFaceCss()}
 #screen .cline .t{font:500 11px var(--sans);padding:6px 10px;border-left:1px solid #000}
 #screen .tile-back{position:absolute;inset:0;z-index:0;pointer-events:none}
 #screen .tile.has-back>*:not(.tile-back){position:relative;z-index:1}
+#screen .tile.usage.has-back>.tile-count{position:absolute}
 #screen .tile-back .feed{display:block;width:100%;height:100%}
 #screen .tile-back .daycurve,#screen .tile-back .daycurve svg{display:block;width:100%;height:100%;max-width:none}
 #screen .daycurve svg,#screen .limitbars svg,#screen .daystrip svg,#screen .timeline svg,#screen .areachart svg{display:block;width:100%;height:auto}
@@ -1914,7 +2092,7 @@ const style = h("style", `${fontFaceCss()}
 #screen .tile.fill .tile-body>.polar{flex:none;width:min(100cqw,100cqh);margin:0 auto}
 #screen .word{width:100%;text-align:center}
 #screen .word .w{font:700 min(40px,24cqw)/1 var(--cond);letter-spacing:.2em;text-indent:.2em;white-space:nowrap}
-#screen .word .cap{font:500 11px/1.35 var(--mono);margin-top:7px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#screen .word .cap{font:500 11px/1.35 var(--mono);margin-top:7px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 1.7em),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 1.7em),transparent)}
 #ui-frame{position:absolute;inset:0;pointer-events:none;color:#fff;mix-blend-mode:difference;z-index:5}
 #ui-frame text{font:500 9.5px var(--mono,monospace);letter-spacing:.06em}
 #screen .bignum{font:600 min(56cqh, calc(138cqw / var(--chars,3)))/.9 var(--cond);letter-spacing:-.01em;white-space:nowrap}
@@ -1930,7 +2108,7 @@ const style = h("style", `${fontFaceCss()}
 #screen .lines .ln{flex:1 1 0;min-height:0;max-height:42px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #000;font:500 13.5px/1.2 var(--sans)}
 #screen .lines .ln:last-child{border-bottom:0}
 #screen .lines .l{font:500 11.5px var(--mono);flex:none;display:inline-flex;align-items:center}
-#screen .lines .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#screen .lines .t{flex:1;min-width:0;overflow:hidden;white-space:nowrap;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 1.7em),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 1.7em),transparent)}   /* long text fades out at the edge instead of being cut */
 #screen .lines .r{font:600 11.5px var(--mono);flex:none}
 #screen .tile.list .tile-body>.lines{height:100%}
 #screen .typewriter{display:grid;width:100%;font:600 17px/1.3 var(--sans)}
@@ -1970,7 +2148,7 @@ function mount<T extends Node>(node: T, parent: Element = root): T {
 }
 
 const describe = (c: Element) => {
-  const name = (c as HTMLElement).dataset?.name;
+  const name = (c as HTMLElement).dataset?.name ?? ((c as HTMLElement).dataset?.tile ? `tile ${(c as HTMLElement).dataset.tile}` : undefined);
   const cls = c.classList.length ? "." + [...c.classList].join(".") : "";
   const own = [...c.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent!.trim()).join(" ").trim();
   return c.tagName.toLowerCase() + (name ? `[${name}]` : "") + cls + (own ? ` "${own.length > 40 ? own.slice(0, 40) + "…" : own}"` : "");
@@ -2063,6 +2241,29 @@ function adapt(): FitReport {
   return { fits: true, scale, dropped: dropped.map(describe), clipped, freeY: Math.round(availH - contentH * scale), natural, crowded };
 }
 
+/** What a documented item is. */
+enum DocKind { Function, Value, Interface, Type, Enum, Key }
+/** One parameter of a documented function. */
+interface DocParam { readonly name: string; readonly type: string; readonly optional: boolean }
+/** An entry of the generated reference: its signature and doc comment, extracted from the kit's own source. */
+interface DocItem {
+  readonly name: string;
+  readonly kind: DocKind;
+  /** The declaration's type signature as written, e.g. `tile(label: string, body?: Child, o?: TileOptions): HTMLElement`. */
+  readonly signature: string;
+  /** The doc comment, without the comment marks. */
+  readonly doc: string;
+  readonly params: readonly DocParam[];
+  readonly returns: string;
+  /** Enum members, or interface fields, one per line as written. */
+  readonly members: readonly string[];
+  /** Whether it is installed as a global (usable directly in an eval). */
+  readonly global: boolean;
+  readonly line: number;
+}
+/** Look the library up: docs("tile") finds items whose name or comment mentions it; docs() lists everything. Same data as GET /docs. */
+const docs = (query?: string): Promise<DocItem[]> => fetch(`/docs${query ? `?q=${encodeURIComponent(query)}` : ""}`).then((r) => r.json());
+
 /** The fit report for the scene as it is now (re-fits it). */
 const fits = (): FitReport => adapt();
 
@@ -2084,9 +2285,12 @@ let txOpen = false;
 let uncommitted = new Set<number>();
 
 /** The orchestrator calls this right before evaluating a change (tx() does it for you). */
+let regSnap: { defs: Map<string, ScreenState>; current: string | null; home: string | null } | null = null;
 function begin(): void {
   txOpen = true;
   uncommitted.clear();
+  touchedScreens.clear();
+  regSnap = { defs: new Map(screenDefs), current: currentScreen, home: homeScreen };   // the registry is part of what a rollback restores
 }
 
 window.setInterval = ((fn: TimerHandler, ms?: number, ...args: any[]) => {
@@ -2111,12 +2315,17 @@ window.clearInterval = window.clearTimeout = ((id?: number) => {
 //   slow  5 min   weather, prices, anything that drifts
 // Periods are multiples of the clock, aligned to it, so a 30 s job and a 5 min job coincide every 5 min.
 
-type Tier = "tick" | "beat" | "slow";
-const cadence: Record<Tier, number> = { tick: 1000, beat: 30_000, slow: 300_000 };
-const periodOf = (r: number | Tier): number => (typeof r === "number" ? Math.max(cadence.tick, r) : cadence[r]);
-const slotOf = (r: number | Tier, now = Date.now()): number => Math.floor(now / periodOf(r));
+/** How often a live binding or job may repaint: Tick = 1 s (only for what must count), Beat = 30 s (live data), Slow = 5 min. */
+enum Tier { Tick = "tick", Beat = "beat", Slow = "slow" }
+/** A period: a tier, or milliseconds (minimum 1 s, aligned to the clock). */
+type Period = Tier | number;
+const cadence: Record<Tier, number> = { [Tier.Tick]: 1000, [Tier.Beat]: 30_000, [Tier.Slow]: 300_000 };
+const periodOf = (r: Period): number => (typeof r === "number" ? Math.max(cadence[Tier.Tick], r) : cadence[r]);
+const slotOf = (r: Period, now = Date.now()): number => Math.floor(now / periodOf(r));
+/** One minute in ms: a period that redraws exactly when the minute changes. */
+const Minute = 60_000;
 
-interface Job { name?: string; every: number | Tier; fn: () => void; slot: number }
+interface Job { name?: string; every: Period; fn: () => void; slot: number }
 const jobs = new Map<number, Job>();
 let jobSeq = 0, flushes = 0, lastFlush = 0, held = false;
 
@@ -2125,13 +2334,13 @@ function stop(which: string | number): void {
   for (const [id, j] of jobs) if (id === which || j.name === which) jobs.delete(id);
 }
 /**
- * A named job on the beat: `ui.every("clock", "beat", fn)` or with a period in ms (min 1 s, rounded to the clock). Calling again
- * with the same name replaces it. It first runs at the next boundary of its period, with everything else due then.
+ * A named job on the beat: ui.every("clock", Tier.Beat, fn), or with a period in ms. Calling again with the same name replaces it.
+ * It first runs at the next boundary of its period, together with everything else due then.
  */
-function every(name: string, ms: number | Tier, fn: () => void): number {
+function every(name: string, period: Period, fn: () => void): number {
   stop(name);
   const id = -++jobSeq;
-  jobs.set(id, { name, every: ms, fn, slot: slotOf(ms) });
+  jobs.set(id, { name, every: period, fn, slot: slotOf(period) });
   if (txOpen) uncommitted.add(id);
   return id;
 }
@@ -2140,42 +2349,76 @@ const timers = () => [
   ...[...jobs].map(([id, j]) => ({ id, ms: periodOf(j.every), name: j.name })),
 ];
 
+// ---- typed keys: the live data the machine sends, named by handles, never by strings
+/** A typed handle on one live value. `id` is the wire name feeds write; T is what the value is; `sample` is a fixture the self-test shows. */
+interface Key<T> { readonly id: string; readonly doc: string; readonly sample: T }
+const keyRegistry = new Map<string, Key<unknown>>();
+/** Declare a key (the catalogue is in the schema, as K.*). Values are JSON on the wire: numbers, booleans, strings, arrays, objects, null. */
+function defineKey<T>(id: string, doc: string, sample: T): Key<T> {
+  const k: Key<T> = Object.freeze({ id, doc, sample });
+  keyRegistry.set(id, k);
+  return k;
+}
+/** Whether the link to the server is up. */
+enum Link { Connecting, Up, Down }
+const KEY_SCREEN = defineKey<string>("ui.screen", "The screen to show: written by POST /screen, read by the page.", "home");
+const KEY_HOLD = defineKey<number>("ui.hold", "Milliseconds a non-home screen stays before returning home; 0 stays.", 0);
+const KEY_MINUTE = defineKey<number>("time.minute", "Epoch ms, rewritten on the minute: bind to it to redraw a clock face on the minute.", 0);
+const KEY_LINK = defineKey<Link>("link.server", "Link to the display server.", Link.Up);
+
 // ---- live data: a keyed store the server (or any script) writes, and bindings that show it
-interface Datum { v: any; ts: number }
+interface Datum { v: unknown; ts: number }
 const data = new Map<string, Datum>();
-interface Watcher { keys: string[]; el: Element; draw: () => void; tier: number | Tier; slot: number; stale: boolean; always: boolean; seen: boolean; empty: boolean }
+interface Watcher { keys: string[]; el: Element; draw: () => void; tier: Period; slot: number; stale: boolean; always: boolean; seen: boolean; empty: boolean }
 const watchers = new Set<Watcher>();
 
-/** Write a value. This never touches the DOM: bindings that show the key go stale and redraw at their next beat. */
-function setData(key: string, v: any, ts: number = Date.now()): void {
-  if (key === "ui.screen" && typeof v === "string" && v !== currentScreen) { data.set(key, { v, ts }); go(v); return; }   // navigation is immediate
-  const old = data.get(key);
+/** Write a value by its wire name (the server's updates arrive this way). Use `setData(key, value)` in your own code. */
+function setById(id: string, v: unknown, ts: number = Date.now()): void {
+  const k = keyRegistry.get(id);
+  if (k && v !== null && k.sample !== null && (typeof v !== typeof k.sample || Array.isArray(v) !== Array.isArray(k.sample))) console.warn(`ui: key ${id} expects ${Array.isArray(k.sample) ? "an array" : typeof k.sample}, got`, v);
+  if (id === KEY_SCREEN.id && typeof v === "string" && v !== currentScreen) { data.set(id, { v, ts }); go(v); return; }   // navigation is immediate
+  const old = data.get(id);
   const changed = !old || JSON.stringify(old.v) !== JSON.stringify(v);
-  data.set(key, { v, ts });
-  if (changed) for (const w of watchers) if (w.keys.includes(key)) w.stale = true;
+  data.set(id, { v, ts });
+  if (changed) for (const w of watchers) if (w.keys.includes(id)) w.stale = true;
 }
-/** Minutes since a key was last written (Infinity if never): feed a sigil("age", ...) with it. */
-const dataAge = (key: string): number => (data.has(key) ? Math.floor((Date.now() - data.get(key)!.ts) / 60000) : Infinity);
+/** Write a value. This never touches the DOM: bindings that show the key go stale and redraw at their next beat. */
+function setData<T>(key: Key<T>, v: T, ts?: number): void { setById(key.id, v, ts); }
+/** The latest value of a key, or undefined if it has never been written. */
+const getData = <T>(key: Key<T>): T | undefined => data.get(key.id)?.v as T | undefined;
+/** Minutes since a key was last written (Infinity if never): feed sig.age(...) with it. */
+const dataAge = (key: Key<unknown>): number => (data.has(key.id) ? Math.floor((Date.now() - data.get(key.id)!.ts) / 60000) : Infinity);
+
+/** What a binding's render also receives. */
+interface FeedMeta { /** Minutes since its newest key was written. */ readonly age: number }
+interface FeedOptions { readonly tier?: Period; /** Shown until any key has been written (default "–"). */ readonly fallback?: Child; /** Redraw every beat (for things that show their age). */ readonly always?: boolean }
+/** The values a render gets for a list of keys: one per key, in order (undefined until written). */
+type Values<Ks extends readonly Key<any>[]> = { [I in keyof Ks]: Ks[I] extends Key<infer T> ? T | undefined : never };
 
 /**
- * A live binding: `feed("wifi.bars", (n) => sigil("bars", n))` draws now and redraws only at its tier's next beat after the
- * value changes. With several keys the render gets an array. `always` redraws at every beat (for things that show their age).
- * Until any of its keys has been written it shows `fallback` (default "–"); missing keys of a multi-key feed arrive as undefined.
+ * A live binding: feed(K.wifi.bars, (n) => bars(n)) draws now and redraws only at its tier's next beat after the value changes.
+ * With a list of keys the render gets a tuple of their values. The first value for an empty binding is drawn at the next second.
  */
-const feed = (keys: string | string[], render: (v: any, meta: { age: number }) => Child, o: { tier?: number | Tier; fallback?: Child; always?: boolean } = {}): HTMLElement => {
-  const list = Array.isArray(keys) ? keys : [keys], tier = o.tier ?? "beat";
+function feed<T>(key: Key<T>, render: (v: T | undefined, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement;
+function feed<Ks extends readonly Key<any>[]>(keys: Ks, render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): HTMLElement;
+function feed(keys: Key<any> | readonly Key<any>[], render: (v: any, meta: FeedMeta) => Child, o: FeedOptions = {}): HTMLElement {
+  const list = (Array.isArray(keys) ? keys : [keys]) as Key<any>[], ids = list.map((k) => k.id), tier = o.tier ?? Tier.Beat;
   const el = h("span", { class: "feed" });
   const draw = () => {
-    const have = list.some((k) => data.has(k));
+    const have = ids.some((id) => data.has(id));
     const age = Math.max(...list.map(dataAge).filter((a) => a !== Infinity), 0);
-    const vals = list.map((k) => data.get(k)?.v);
+    const vals = ids.map((id) => data.get(id)?.v);
     el.replaceChildren(frag(have ? render(Array.isArray(keys) ? vals : vals[0], { age }) : o.fallback ?? "–"));
   };
-  const empty = !list.some((k) => data.has(k));
+  const empty = !ids.some((id) => data.has(id));
   draw();
-  watchers.add({ keys: list, el, draw, tier, slot: slotOf(tier), stale: false, always: !!o.always, seen: false, empty });
+  watchers.add({ keys: ids, el, draw, tier, slot: slotOf(tier), stale: false, always: !!o.always, seen: false, empty });
   return el;
-};
+}
+/** The same as feed, as a function that makes the binding when called: a tile's body, count or back is built fresh with each screen build. */
+function bind<T>(key: Key<T>, render: (v: T | undefined, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement;
+function bind<Ks extends readonly Key<any>[]>(keys: Ks, render: (v: Values<Ks>, meta: FeedMeta) => Child, o?: FeedOptions): () => HTMLElement;
+function bind(keys: any, render: any, o?: FeedOptions): () => HTMLElement { return () => feed(keys, render, o); }
 
 function applyFeeds(now: number): number {
   let n = 0;
@@ -2206,43 +2449,43 @@ function beatStep(): void {
   journal.takeRecords(); // live updates are not part of any change: a rollback must never undo them
   if (ran) { flushes++; lastFlush = now; window.dispatchEvent(new CustomEvent("ui:beat", { detail: { ran, at: now } })); }
 }
-const beatLoop = (): void => { beatStep(); realSetTimeout(beatLoop, cadence.tick - (Date.now() % cadence.tick) + 4); };
-realSetTimeout(beatLoop, cadence.tick - (Date.now() % cadence.tick) + 4);
+const beatLoop = (): void => { beatStep(); realSetTimeout(beatLoop, cadence[Tier.Tick] - (Date.now() % cadence[Tier.Tick]) + 4); };
+realSetTimeout(beatLoop, cadence[Tier.Tick] - (Date.now() % cadence[Tier.Tick]) + 4);
 
-// The clock is data too: "time.minute" is rewritten once a minute, on the minute, so a clock face binds to it like any feed
-// (`feed(["time.minute", ...], draw, {tier: 60000})` redraws exactly when the minute changes).
+// The clock is data too: K.time.minute is rewritten once a minute, on the minute, so a clock face binds to it like any feed:
+// feed([K.time.minute, ...], draw, { tier: Minute }) redraws exactly when the minute changes.
 let lastMinute = -1;
-every("ui.time", "tick", () => { const m = Math.floor(Date.now() / 60000); if (m !== lastMinute) { lastMinute = m; setData("time.minute", Date.now()); } });
+every("ui.time", Tier.Tick, () => { const m = Math.floor(Date.now() / 60000); if (m !== lastMinute) { lastMinute = m; setData(KEY_MINUTE, Date.now()); } });
 
-/** Change the periods (ms), e.g. ui.cadence({beat: 60000}). Jobs re-base so nothing fires in a burst. */
+/** Change the periods (ms), e.g. ui.cadence({ [Tier.Beat]: 60000 }). Jobs re-base so nothing fires in a burst. */
 function setCadence(c: Partial<Record<Tier, number>> = {}): Record<Tier, number> {
-  for (const k of ["tick", "beat", "slow"] as Tier[]) if (c[k]) cadence[k] = Math.max(1000, Math.round(c[k]! / 1000) * 1000);
+  for (const k of [Tier.Tick, Tier.Beat, Tier.Slow]) if (c[k]) cadence[k] = Math.max(1000, Math.round(c[k]! / 1000) * 1000);
   for (const j of jobs.values()) j.slot = slotOf(j.every);
   for (const w of watchers) w.slot = slotOf(w.tier);
   return { ...cadence };
 }
 
 // ---- the link to the machine (see crates/preview: /sub, /push, /run, feeds/)
-let link: "connecting" | "up" | "down" = "connecting";
-/** Follow the server's data feed: long-polls /sub, writing every update into the store (and into "link.server"). */
+let link: Link = Link.Connecting;
+/** Follow the server's data feed: long-polls /sub, writing every update into the store (and K.link.server). */
 async function connect(base = ""): Promise<void> {
   let since = 0;
   for (;;) {
     try {
       const j = await (await fetch(`${base}/sub?since=${since}`, { cache: "no-store" })).json();
       since = j.seq;
-      for (const [k, v, ts] of j.updates) setData(k, v, ts);
-      if (link !== "up") { link = "up"; setData("link.server", "up"); }
+      for (const [id, v, ts] of j.updates) setById(id, v, ts);
+      if (link !== Link.Up) { link = Link.Up; setData(KEY_LINK, Link.Up); }
     } catch {
-      if (link !== "down") { link = "down"; setData("link.server", "down"); }
+      if (link !== Link.Down) { link = Link.Down; setData(KEY_LINK, Link.Down); }
       await new Promise((r) => realSetTimeout(r, 3000));
     }
   }
 }
 /** Publish a value to the server's store (and so to every page and script). */
-const push = (key: string, value: any) => fetch("/push", { method: "POST", body: JSON.stringify({ key, value }) }).then((r) => r.json());
+const push = <T>(key: Key<T>, value: T) => fetch("/push", { method: "POST", body: JSON.stringify({ key: key.id, value }) }).then((r) => r.json());
 /** Run a named command from the server's commands/ directory (never arbitrary shell): resolves {ok, code, stdout, stderr}. */
-const run = (cmd: string, ...args: string[]) =>
+const run = (cmd: string, ...args: string[]): Promise<{ ok: boolean; code: number | null; stdout: string; stderr: string; error?: string }> =>
   fetch(`/run?cmd=${encodeURIComponent(cmd)}${args.map((a) => `&arg=${encodeURIComponent(a)}`).join("")}`, { method: "POST" }).then((r) => r.json());
 if (!(window as any).UI_NO_LINK && location.protocol.startsWith("http")) void connect();
 
@@ -2276,6 +2519,8 @@ function rollback(): void {
   for (const r of log.splice(0).reverse()) undo(r);
   journal.takeRecords(); // the undo's own mutations are not history
   for (const id of uncommitted) { realClearInterval(id); intervals.delete(id); jobs.delete(id); } // timers and jobs die with the change that made them
+  if (regSnap) { screenDefs = new Map(regSnap.defs); currentScreen = regSnap.current; homeScreen = regSnap.home; regSnap = null; }
+  touchedScreens.clear();
   uncommitted.clear();
   txOpen = false;
   adapt();
@@ -2285,10 +2530,55 @@ function rollback(): void {
 function verify(): FitReport {
   flush();
   const f = adapt();
+  if (txOpen) {
+    // every screen this change defined or edited must fit as built (tiles that overflow their own cell are refused, and the change is rolled back)
+    const problems: string[] = [];
+    for (const id of touchedScreens) {
+      if (!screenDefs.has(id)) continue;
+      const r = id === currentScreen ? f : trialScreen(id);
+      if (r.crowded.length) problems.push(`screen "${id}": ${r.crowded.join("; ")}`);
+    }
+    if (problems.length) throw new Error("a tile does not fit its cell (shorten it, give it a bigger zone, or remove it): " + problems.join(" | "));
+  }
+  touchedScreens.clear();
   log = [];
   uncommitted.clear();
   txOpen = false;
+  regSnap = null;
   return f;
+}
+
+/** Build a screen that is not on show, measure it, and put the previous one back. */
+function trialScreen(id: string): FitReport {
+  const prev = currentScreen;
+  renderScreen(id);
+  const r = adapt();
+  if (prev !== null && screenDefs.has(prev)) renderScreen(prev); else root.replaceChildren();
+  adapt();
+  return r;
+}
+
+/** One screen's outcome in the self-test. */
+interface ScreenReport { readonly screen: string; readonly ok: boolean; readonly scale: number; readonly dropped: readonly string[]; readonly clipped: boolean; readonly crowded: readonly string[] }
+/**
+ * Show every screen with every key set to its sample value (or, with `empty`, with no data at all: how a screen looks before the first
+ * feed arrives) and report how each fits (ok = nothing crowded, dropped or clipped). Your real data and the current screen are put back.
+ * Call it inside a query or tx so the DOM is restored too.
+ */
+function selfTest(empty = false): ScreenReport[] {
+  const saved = new Map(data), prev = currentScreen, out: ScreenReport[] = [];
+  if (empty) data.clear();
+  else for (const k of keyRegistry.values()) if (k.id !== KEY_SCREEN.id && k.id !== KEY_HOLD.id) data.set(k.id, { v: k.sample, ts: Date.now() });
+  for (const id of screenDefs.keys()) {
+    renderScreen(id);
+    const r = adapt();
+    out.push({ screen: id, ok: !r.clipped && !r.crowded.length && !r.dropped.length, scale: r.scale, dropped: r.dropped, clipped: r.clipped, crowded: r.crowded });
+  }
+  data.clear();
+  for (const [id, d] of saved) data.set(id, d);
+  if (prev !== null && screenDefs.has(prev)) renderScreen(prev); else root.replaceChildren();
+  adapt();
+  return out;
 }
 
 /** Run fn, then verify(). If fn throws, its changes are rolled back too. */
@@ -2420,64 +2710,20 @@ function eink(opt: boolean | { algo?: DitherAlgo } = true): void {
   void paintEink();
 }
 
-const HELP = `ui — display-only kit. Everything is a real DOM node; fall back to the DOM any time.
-FIT IS AUTOMATIC  The screen is 800x480 with no scrolling, and a scene cannot overflow it: it is scaled down to fit (never below
-         0.72x, so text stays readable), then parts you marked optional are hidden, then the edge clips. Nothing errors and the
-         screen is never blank. ui.show()/ui.fits() return {scale, dropped, clipped, freeY, natural}. If scale < 1 or anything was
-         dropped, the scene was too big: trim it. Mark optional parts {priority: 1..9} (low = hidden first); unmarked content is never removed, only clipped.
-         Wrap dynamic/API text in clamp(lines, text); use fill(...) for a region that takes the remaining space.
-BUILD    div p section h1..h4 ul li table span em strong small code mark bold italic ... (bare globals)
-         props via object arg: p({class:"x", style:{color:"#555"}, name:"intro"}, "text")
-LAYOUT   row(...) col(...) grid(n,...) box(...) card("Title",...) big(...) divider() badge(x) heading(x,level)
-DATA     stat(label,value,{unit,delta}) list([..]) table(rows,{head}) kv({k:v}) progress(0..1,label)
-         bars([n | [label,n]]) sparkline([n]) agenda([{time,title,note}]) weather({temp,cond,icon,hi,lo}) md("# text")
-MORE     topbar(title,right) banner(text,{icon}) quote(text,by) todo([str|{text,done}]) gauge(0..1,label) month(date,{marks})
-         lineChart([n],{labels}) image(src,{fit,w,h}) icon(name) chips([..]) trend(n) spacer() center(...)
-FRIENDLY say(text) sunArc({rise,set,now}) hourly([{t,temp,icon,pop}]) tearoff(date) note(text,{tilt}) presence([{name,home}])
-         habitGrid([0..3]) timerRing(sec,total) moon(phase) weatherIcon(kind,size) kinds: clear night partly cloudy rain snow storm fog wind
-MODULES  tile(label,body,{count,inverted}) levelTile(label,0..1,text) dayDial({rise,set,now,size,sub}) ruler({min,max,value,target,step,w})
-         statStrip([{label,value,sub}]) pills([str|{label,icon}],{active}) slider(0..1,label,{text}) hero(value,{unit,label,status,sub})
-         menu([{label,value,dot:ok|warn|off}]) device({name,sub,on,icon}). ui.accent("#d4451a") for colour panels; black otherwise.
-SIGILS   sigil(kind,value,size) / sigils([[kind,value]..]) are 12px marks carrying ONE fact: state ok|idle|warn|err|unk, level [v,max] (filled ring),
-         trend up|down|flat|rise|fall, age minutes (one-hand clock), count 1..6 (dice), dir degrees, bars 0..4, glyph iconName. Use them inline
-         (in a label, a table cell, next to a number) and in the corners: ui.frame({title,sheet, tl:[...], tr:[...]}). Terse beats verbose.
-VECTOR   polar([n],{labels,marks}) for cyclic data;
-         ridgeline(rows,{labels,hours}) a surface of days; word("FLX","caption") a spaced-caps status screen. A console = square modules.
-LOOK     Landscape-like modules: small centred line icons (tone "iconic", count bottom-left), the donut dayDial clock, wavy dithered gradients
-         (tile {waves:{from,bands,amp}}), levelTile tanks. Clean sans for text, mono only for data. tone "legend" puts the label on the border.
-         btop-like detail: dotBars, dotMirror(up,down), sparkRows([{label,values,text}]), tables with segbar cells.
-STYLE    Engineering-graphics: hard corners, monospace, 1px lines, DENSE and EXPLICIT. Show state: units, source, updated-at, ranges, status.
-         Flat, not hierarchical. statusStrip([mark, ...],[right...]) on top; ui.frame({title,sheet}) adds zone letters/numbers + title block.
-         readouts([{label,value,max,unit,text}]) = LABEL [segmented bar] value. Each tile gets a cell id (B2) from place().
-LAYOUT   EVERY SCREEN IS A tilegrid (6 cols x 3 rows) OF MODULES: place(tile(label, visual, {count, inverted, tone}), "row / col / rowEnd / colEnd").
-         tone: "fill" (visual fills the module) | "sky" (dithered gradient) | "list" (compact rows). Label top-left, visual, count bottom-left.
-         Vary tones: some inverted, one sky or tank, the rest outlined. Pass w: to dayStrip/areaChart/timeline so their text stays 1:1.
-         ui.fits() also lists crowded modules (content bigger than its cell).
-BREAK    band("top"|"bottom"|"mid", ...) is a full-bleed black bar (header, Claude line, statStrip, ruler inside). giant(value,{size}) is an
-         oversized numeral: put it in tile(..., {bleed:true, inverted:true}) so the module edge crops it. tone "open" = no box, just a top rule.
-         ui.frame() adds corner registration targets and edge ticks. Alternate boxed, open, inverted and banded regions; avoid all-boxes.
-QUANTITY dotBars([0..1]) waffle(value,total,{cols,hatch}) stackBar([{label,value,look}]) arcGauge(v,{min,max}) levelTile dayDial ruler
-BOLD     panel("inv"|"sky"|"plain"|"dots",...) meta(left,right) claudeLine(text,time) dotClock({pitch,time}) dayStrip({rise,set,now})
-         timeline({from,to,now,lanes:[{label,blocks:[{from,to,label,look:solid|hatch|outline}]}]}) areaChart([n],{h,labels,now,window})
-         tilegrid(...) with tiles placed by style gridArea; hero(value,{size}); class "reg" adds corner registration marks.
-ICONS    icon(name,{size,fill,stroke}): arrow chevron sun moon cloud rain snow bolt wind drop thermo umbrella home door check cross warn info mail
-         star heart phone flag clock bell calendar trash bulb plug wifi battery music book cup utensils car bus bag leaf sparkle
-         lock tv pin user sunrise sunset  (any other text renders as a glyph)
-         DESIGN FOR 1-BIT: no light grays. Hierarchy = size, weight, caps, borders, inverted blocks (banner/mark).
-TIMERS   ui.every(name, ms, fn)  named interval, re-running replaces it (prefer this to raw setInterval; min 1s)
-         ui.timers()  ui.stop(nameOrId). Intervals made by a rejected change are cancelled with it.
-LIVE     clock({seconds,date,hour12}) countdown(date,label) live(el, fn, ms)
-SCENE    ui.show(...nodes)  replace everything | ui.mount(node)  append (replaces node with same name)
-         ui.get("name")  ui.outline()  ui.clear()  await ui.settled()  ui.rev
-         ui.eink() | ui.eink({algo:"atkinson"|"floyd"|"threshold"}) | ui.eink(false)   dithered 1-bit preview
-EDIT     el.child el.kids el.up el.next el.prev el.q(sel) el.qa(sel) el.text = x el.add(...) el.set({..}) el.clear()
-LIVE     feed("wifi.bars", n => sigil("bars", n))  a binding: redraws only on its tier'"'"'s next beat after the value changes.
-         ui.every(name, "tick"|"beat"|"slow"|ms, fn)  a job on the master clock; ui.cadence({beat: 60000}); ui.hold()/resume().
-         ui.set(k, v) ui.get(k) ui.age(k)  the data store (scripts write it via the server); ui.push(k, v); ui.run("cmd", ...args) runs commands/<cmd> on the machine.
-MOTION   liveTimer(sec) typewriter(text) countUp(n,{dec,unit}) stream(series,next,draw) spinner() cursor(): stepped, 1 s ticks (ui.every); CSS steps() under that.
-LENSES   el.words | el.chars | el.sentences over flattened text:
-         el.words[1] = bold("x")   el.words.wrap(1, mark)   el.words.replace(0,2,"hi")
-         el.words.insert(i,x)  el.words.remove(i,j)  el.words.length  [...el.words]  el.words.indexOf("w")`;
+const HELP = `ui: a display-only kit, driven from this page's REPL. Everything is typed; nothing is addressed by strings.
+
+LOOK THINGS UP  await ui.docs("tile")  (signatures + doc comments, from the kit's own source; same as GET /docs?q=tile, /docs/<name>, /docs.md)
+DATA            K.wx.temp ... typed keys (ui.docs("K.") lists them): feed(K.wx.temp, (t) => bignum(fmt.num(t)))  ui.get(K.x)  ui.set(K.x, v)
+                enums for categories (Sky, CarbonIndex, ...), fmt.* for text, calendar.* / series.* for derived values. Times are epoch ms.
+SCREENS         ui.defineScreen({ id, tab, tiles: [{ id, at: zone(Z.A1, Z.B2), title, glyph, tone, body, count, back }] })
+                body/count/back are Child or a function (use bind(keys, render) for live ones). Z.A1 ... Z.F3 are the sheet's cells.
+                CHANGE ONE TILE  ui.screenOf("weather").patchTile("uv", { title: "UV" })   .setTile(spec)   .removeTile(id)
+                Each change is verified (overlaps, tiles that overflow their cell) and rolled back if wrong; ui.go(id) shows a screen.
+CHECK           GET /selftest  shows every screen with sample data (?data=empty: none) and reports fit.
+TIMING          one master clock: ui.every(name, Tier.Beat, fn), feed(..., {tier: Tier.Slow}); ui.cadence(), ui.hold(), ui.resume().
+MACHINE         ui.run("cmd", ...args) runs commands/<cmd>; ui.push(key, value) writes a key; feeds/*.py write keys (see feeds/_schema.py).
+FIT             nothing can scroll or clip: the scene is scaled to fit; tiles whose content is bigger than their cell are reported by ui.fits().crowded.
+FALLBACK        ui.h(tag, ...args) and the DOM are always there; lenses: el.words[1] = bold("x"), el.words.wrap(1, mark), el.chars, el.sentences.`;
 
 const ui = {
   root, screen, h, rev: () => rev, mount, get, outline, eink, dither, rasterize,
@@ -2503,10 +2749,16 @@ const ui = {
   /** Freeze every beat (night mode): data keeps arriving, nothing redraws until resume(). */
   hold: () => { held = true; }, resume: () => { held = false; },
   /** The data store: ui.set(key, v) (no redraw until the next beat), ui.get(key), ui.age(key) minutes, ui.data() everything. */
-  set: setData, get: (k: string) => data.get(k)?.v, age: dataAge, data: () => Object.fromEntries([...data].map(([k, d]) => [k, d.v])),
-  connect, push, run, link: () => link,
-  /** Screens and the tab bar: defineScreen(name, build, {tab}) go(name) start() screens() current() */
-  defineScreen, go, start, screens: () => [...screenDefs.keys()], current: () => currentScreen,
+  set: setData, get: getData, age: dataAge, data: () => Object.fromEntries([...data].map(([k, d]) => [k, d.v])),
+  /** Declare a typed key (the catalogue is K.*). */
+  key: defineKey,
+  /** The keys the kit itself owns (the rest are in the schema as K.*). */
+  keys: { screen: KEY_SCREEN, hold: KEY_HOLD, minute: KEY_MINUTE, link: KEY_LINK },
+  connect, push, run, link: (): Link => link,
+  /** Screens and the tab bar: defineScreen({id, tab, tiles}) go(id) screenOf(id).patchTile(...) screenIds() current() */
+  defineScreen, go, screenOf: (id: string): ScreenHandle | undefined => (screenDefs.has(id) ? screenHandle(id) : undefined), screenIds: () => [...screenDefs.keys()], current: () => currentScreen,
+  /** Show every screen with sample data and report how each fits (run inside a query so the DOM is restored). */
+  selfTest, docs,
   size: (w: number, ht: number) => { screen.style.width = w + "px"; screen.style.height = ht + "px"; adapt(); },
   css: (text: string) => document.head.append(h("style", text)),
   help: () => HELP,
@@ -2515,7 +2767,7 @@ const ui = {
 const exported: Record<string, unknown> = {
   ...prims, row, col, grid, box, card, big, heading, divider, badge, stat, list, table, kv, progress,
   bars, sparkline, agenda, weather, md, clock, countdown, live,
-  feed, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
+  usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
   icon, weatherIcon, say, sunArc, hourly, habitGrid, timerRing, tearoff, note, presence, moon,
   tile, levelTile, dayDial, ruler, statStrip, pills, slider, menu, device, hero,
   panel, meta, claudeLine, tilegrid, dotClock, dayStrip, timeline, areaChart,

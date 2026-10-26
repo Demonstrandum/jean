@@ -2,7 +2,7 @@
 
 The display has a fixed set of **screens**, shown as tabs along the bottom of the 800×480 panel (the current tab inverted, the time at the
 right). The panel takes no input: you ask by voice ("show energy") and the harness switches it. The sample layouts in
-`crates/preview/static/index.html` are the gallery of ideas; the real screens are `crates/ui/ts/screens.ts`.
+`crates/preview/static/index.html` are the gallery of ideas; the real screens are `crates/ui/seed/`.
 
 | tab | what it shows | data |
 |-----|---------------|------|
@@ -36,11 +36,15 @@ curl -s -d '{"timer.total":390,"timer.label":"egg","timer.end":'$((($(date +%s)+
 
 `claude.state` is `idle`, `listening`, `thinking` or `speaking`.
 
-## Adding a screen
+## Screens are data, and the agent edits them live
+
+Each screen is `{ id, tab, tiles }` and each tile `{ id, at: zone(...), title, glyph, tone, body, count, back }`: see `crates/ui/seed/` for all
+seven. The display does not compile them in: the server applies the seed files through its journal the first time it starts (one commit
+per screen), and from then on the agent changes them from the page's REPL, one tile at a time, verified and rolled back if wrong:
 
 ```ts
-ui.defineScreen("garden", () => sheet(place(tile("Soil", feed("garden.moisture", (v) => bignum(v)), {}), "1 / 1 / 2 / 3")), { tab: "GARDEN" });
+ui.screenOf("weather").patchTile("uv", { title: "UV" })
+ui.defineScreen({ id: "garden", tab: "GARDEN", tiles: [ /* ... */ ] })     // a new tab
 ```
 
-The tab bar draws itself from the registered screens (first one defined is home; `{hidden: true}` keeps one off the bar). A screen's timers stop
-when you leave it. Keep the bar to about eight tabs: each cell is `752 / n` px wide.
+See `docs/agent.md` for how the agent looks things up (`GET /docs`) and what is checked before a change is kept.

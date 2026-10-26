@@ -224,6 +224,10 @@ fn main() {
     println!("store: {dir} (head {})", store.head().unwrap_or_default());
 
     let root = PathBuf::from(std::env::args().nth(3).unwrap_or_else(|| ".".into()));
+    // the feeds' enums come from the schema: regenerate them at every start
+    if let Err(e) = fs::create_dir_all(root.join("feeds")).and_then(|_| fs::write(root.join("feeds/_schema.py"), ui::docs::schema_py(&ui::docs::extract(ui::SCHEMA)))) {
+        eprintln!("could not write feeds/_schema.py: {e}");
+    }
     // startup: unlock the encrypted fonts with secrets/font.key
     let mut fonts = HashMap::new();
     for (name, cipher) in ui::ENCRYPTED_FONTS {
@@ -283,8 +287,8 @@ fn handle(app: &Arc<App>, mut req: Request) {
         (false, "/ui.js") => {
             // from the source tree when it exists (edit ui.ts and reload), else the copy compiled into the binary
             let src = fs::read_to_string(app.here.join("../ui/ts/ui.ts")).unwrap_or_else(|_| ui::SOURCE.to_string());
-            let screens = fs::read_to_string(app.here.join("../ui/ts/screens.ts")).unwrap_or_else(|_| ui::SCREENS.to_string());
-            match ui::bundle_all(&src, &screens) {
+            let schema = fs::read_to_string(app.here.join("../ui/ts/schema.ts")).unwrap_or_else(|_| ui::SCHEMA.to_string());
+            match ui::bundle_all(&src, &schema) {
                 Ok(js) => text(req, 200, "text/javascript; charset=utf-8", js),
                 Err(e) => text(req, 500, "text/javascript", format!("console.error({e:?});")),
             }
@@ -346,6 +350,62 @@ fn handle(app: &Arc<App>, mut req: Request) {
         }
         (false, "/data") => reply(req, 200, app.hub.snapshot()),
         (false, "/feeds") => reply(req, 200, app.feeds.status()),
+        (false, "/seeds.js") => match ui::seeds_js() {
+            // the shipped screens as one script: the gallery page runs them directly (they are not journaled there)
+            Ok(js) => text(req, 200, "text/javascript; charset=utf-8", match seed_sources(app).iter().map(|(n, s)| ui::strip_eval(s).map_err(|e| format!("{n}: {e}"))).collect::<Result<Vec<_>, _>>() {
+                Ok(parts) => parts.join("\n"),
+                Err(_) => js,
+            }),
+            Err(e) => text(req, 500, "text/javascript", format!("console.error({e:?});")),
+        },
+        (false, "/docs.md") => text(req, 200, "text/markdown; charset=utf-8", ui::docs::markdown(&doc_items(app))),
+        (false, p) if p == "/docs" || p.starts_with("/docs/") => {
+            // the reference, extracted from the kit's own signatures and doc comments:
+            //   /docs?list=1 (names and first sentences)   /docs?q=tile (matches, in full)   /docs/tile (one item)   /docs (all)
+            let items = doc_items(app);
+            let found: Vec<_> = if let Some(name) = p.strip_prefix("/docs/") {
+                items.iter().filter(|i| i.name == name).cloned().collect()
+            } else if let Some(q) = query_param(query, "q") {
+                ui::docs::search(&items, &q).into_iter().take(25).collect()
+            } else {
+                items
+            };
+            if query_param(query, "list").is_some() {
+                let rows: Vec<Value> = found.iter().map(|i| json!({ "name": i.name, "kind": i.kind as u8, "summary": i.summary(), "global": i.global })).collect();
+                reply_value(req, 200, Value::Array(rows))
+            } else {
+                reply_value(req, if found.is_empty() { 404 } else { 200 }, Value::Array(found.iter().map(|i| i.to_json()).collect()))
+            }
+        }
+        (false, "/selftest") => {
+            // show every screen with sample data (?data=empty: with none) and report how each fits (the page rolls the DOM back afterwards)
+            let js = match ui::strip_eval(if query_param(query, "data").as_deref() == Some("empty") { "ui.selfTest(true)" } else { "ui.selfTest()" }) {
+                Ok(js) => js,
+                Err(e) => return reply(req, 500, json!({ "ok": false, "error": e })),
+            };
+            let _guard = app.change_lock.lock().unwrap();
+            match app.bridge.run(js, Kind::Query) {
+                Ok(res) if res.ok => {
+                    let report: Value = res.value.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(Value::Null);
+                    let all_ok = report.as_array().map_or(false, |a| a.iter().all(|r| r["ok"] == true));
+                    reply(req, 200, json!({ "ok": all_ok, "screens": report }))
+                }
+                Ok(res) => reply(req, 200, json!({ "ok": false, "error": res.error.unwrap_or_default() })),
+                Err(e) => reply(req, 503, json!({ "ok": false, "error": e })),
+            }
+        }
+        (true, "/reseed") => {
+            // apply one shipped screen again as a journaled change (it replaces that screen's definition)
+            let Some(name) = query_param(query, "name") else {
+                return reply(req, 400, json!({ "ok": false, "error": "name=<seed file, e.g. 30-weather.ts>" }));
+            };
+            let Some((n, src)) = seed_sources(app).into_iter().find(|(n, _)| *n == name || n.trim_end_matches(".ts").ends_with(name.as_str())) else {
+                return reply(req, 404, json!({ "ok": false, "error": "no such seed" }));
+            };
+            let meta = Meta { intent: Some(format!("reseed {n}")), utterance: None, turn: None, free_y: None };
+            let (status, v) = eval_route(app, &src, meta);
+            reply(req, status, v)
+        }
         (true, "/screen") => {
             // navigation: `POST /screen?name=energy[&hold=60000]` (the page also takes it as the key "ui.screen")
             let Some(name) = query_param(query, "name") else {
@@ -387,6 +447,14 @@ fn handle(app: &Arc<App>, mut req: Request) {
                     }
                     Err(e) => eprintln!("replay failed: {e}"),
                 }
+                // a fresh journal starts from the shipped screens, applied as ordinary journaled changes (one commit each)
+                if app.store.tail().map(|t| t.is_empty()).unwrap_or(false) {
+                    for (name, src) in seed_sources(&app) {
+                        let meta = Meta { intent: Some(format!("seed {name}")), utterance: None, turn: None, free_y: None };
+                        let (status, v) = eval_inner(&app, &src, meta);
+                        println!("seed {name}: {}", if status == 200 && v["ok"] == true { "applied".to_string() } else { format!("REJECTED {v}") });
+                    }
+                }
             });
             reply(req, 200, json!({ "ok": true, "sid": sid }))
         }
@@ -416,12 +484,17 @@ fn handle(app: &Arc<App>, mut req: Request) {
 }
 
 /// One change: strip types, record as pending, run it in the page, then commit or abort.
-fn eval_route(app: &App, source: &str, mut meta: Meta) -> (u16, Value) {
+fn eval_route(app: &App, source: &str, meta: Meta) -> (u16, Value) {
+    let _guard = app.change_lock.lock().unwrap();
+    eval_inner(app, source, meta)
+}
+
+/// As `eval_route`, for a caller that already holds the change lock.
+fn eval_inner(app: &App, source: &str, mut meta: Meta) -> (u16, Value) {
     let js = match ui::strip_eval(source) {
         Ok(js) => js,
         Err(e) => return (400, json!({ "ok": false, "error": format!("syntax: {e}") })),
     };
-    let _guard = app.change_lock.lock().unwrap();
     let pending = match app.store.begin(source) {
         Ok(p) => p,
         Err(e) => return (500, json!({ "ok": false, "error": e.to_string() })),
@@ -444,6 +517,23 @@ fn eval_route(app: &App, source: &str, mut meta: Meta) -> (u16, Value) {
             (503, json!({ "ok": false, "error": e }))
         }
     }
+}
+
+/// The shipped screens as `(file, TypeScript)`: from the source tree when it exists (edit and reload), else compiled in.
+fn seed_sources(app: &App) -> Vec<(String, String)> {
+    ui::SEEDS
+        .iter()
+        .map(|(name, embedded)| (name.to_string(), fs::read_to_string(app.here.join("../ui/seed").join(name)).unwrap_or_else(|_| embedded.to_string())))
+        .collect()
+}
+
+/// The reference items, from the source tree when it exists, else the compiled-in sources.
+fn doc_items(app: &App) -> Vec<ui::docs::DocItem> {
+    let ui_src = fs::read_to_string(app.here.join("../ui/ts/ui.ts")).unwrap_or_else(|_| ui::SOURCE.to_string());
+    let schema = fs::read_to_string(app.here.join("../ui/ts/schema.ts")).unwrap_or_else(|_| ui::SCHEMA.to_string());
+    let mut items = ui::docs::extract(&ui_src);
+    items.extend(ui::docs::extract(&schema));
+    items
 }
 
 fn status(app: &App) -> Value {
@@ -516,6 +606,10 @@ fn file(req: Request, app: &App, rel: &str, ctype: &str) {
 
 const INDEX: &str = include_str!("../static/index.html");
 const LIVE: &str = include_str!("../static/live.html");
+
+fn reply_value(req: Request, status: u16, v: Value) {
+    reply(req, status, v)
+}
 
 fn reply(req: Request, status: u16, v: Value) {
     text(req, status, "application/json", v.to_string())

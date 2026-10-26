@@ -57,7 +57,7 @@ def load():
     l = os.getloadavg()
     for k, v in zip(("1", "5", "15"), l):
         push(load_hist[k], v)
-    return {"sys.load": round(l[0], 2), "sys.load5": round(l[1], 2), "sys.load15": round(l[2], 2), "sys.load_hist": load_hist}
+    return {"sys.load": round(l[0], 2), "sys.load5": round(l[1], 2), "sys.load15": round(l[2], 2), "sys.load_hist": {"m1": load_hist["1"], "m5": load_hist["5"], "m15": load_hist["15"]}}
 
 
 def memory():
@@ -100,12 +100,6 @@ def disk():
         hist[-1][1] = u.used
     series = [round(b / TB, 4) for _, b in hist]
     out = {"disk.used": round(u.used / TB, 3), "disk.total": round(u.total / TB, 3), "disk.pct": round(100 * u.used / u.total), "disk.hist": series}
-    if len(hist) >= 3:
-        d0 = datetime.date.fromisoformat(hist[0][0])
-        days = max(1, (datetime.date.today() - d0).days)
-        rate = (u.used - hist[0][1]) / days            # bytes per day
-        out["disk.rate_gb_day"] = round(rate / 1e9, 2)
-        out["disk.full_days"] = round((u.total - u.used) / rate) if rate > 1e6 else None
     return out
 
 
