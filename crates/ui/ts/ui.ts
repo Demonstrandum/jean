@@ -1703,7 +1703,7 @@ function drawFrame(): void {
     tabs.forEach((sc, i) => {
       const x = x0 + i * (cell + gap), on = sc.id === currentScreen;
       if (on) marks += `<rect x="${f(x)}" y="${y}" width="${cell}" height="${cell}" fill="currentColor" stroke="none"/>`;
-      marks += `<text x="${f(x + cell / 2)}" y="${f(y + 11.4)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font:${on ? 700 : 500} 11.5px var(--sans)">${escHtml(sc.tab)}</text>`;
+      marks += `<text x="${f(x + cell / 2)}" y="${f(y + 11.4)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font:${on ? 400 : 300} 11.5px var(--sans)">${escHtml(sc.tab)}</text>`;
     });
   } else {
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
