@@ -1356,7 +1356,7 @@ const place = <T extends HTMLElement>(node: T, area: string): T => {
  * `values` are the 24 hours from 00:00; `now` is the hour as a fraction (20.5 = 20:30); `guides` are dotted [value, label] lines
  * (UV 3 = moderate, 6 = high); the scale runs to at least `max` so a weak winter curve reads as weak, not as full height.
  */
-const dayCurve = (values: number[], o: { now?: number; w?: number; h?: number; max?: number; padT?: number; padB?: number; guides?: [number, string][]; labels?: [string, number][] } = {}) => {
+const dayCurve = (values: number[], o: { now?: number; w?: number; h?: number; max?: number; padT?: number; padB?: number; baseline?: boolean; guides?: [number, string][]; labels?: [string, number][] } = {}) => {
   const W = o.w ?? 240, H = o.h ?? 74, padT = o.padT ?? 8, padB = o.padB ?? 14, n = values.length, base = H - padB;
   const max = Math.max(o.max ?? 0, ...values, 0.5), id = `hz${++svgSeq}`;
   const X = (hour: number) => (hour / n) * W, Y = (v: number) => base - (Math.max(0, v) / max) * (base - padT);
@@ -1367,7 +1367,7 @@ const dayCurve = (values: number[], o: { now?: number; w?: number; h?: number; m
     const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
     d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${clampY(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${clampY(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
   }
-  let g = `<path d="${d}L${W} ${base}L0 ${base}Z" fill="url(#${id})" stroke="none"/><path d="${d}" stroke-width="1.5"/><path d="M0 ${base}H${W}" stroke-width="1"/>`;
+  let g = `<path d="${d}L${W} ${base}L0 ${base}Z" fill="url(#${id})" stroke="none"/><path d="${d}" stroke-width="1.5"/>${o.baseline === false ? "" : `<path d="M0 ${base}H${W}" stroke-width="1"/>`}`;
   for (const [v, t] of o.guides ?? []) if (v <= max) g += `<path d="M0 ${Y(v).toFixed(1)}H${W}" stroke-width="0.8" stroke-dasharray="1.5 3"/><text x="${W - 1}" y="${(Y(v) - 2).toFixed(1)}" text-anchor="end" fill="currentColor" stroke="none" style="font:500 7px var(--mono)">${escHtml(t)}</text>`;
   if (o.now != null) {
     const nx = X(o.now), f = Math.max(0, Math.min(n - 1, o.now - 0.5)), i0 = Math.floor(f), v = values[i0] + ((values[Math.min(n - 1, i0 + 1)] - values[i0]) * (f - i0));

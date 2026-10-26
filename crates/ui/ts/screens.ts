@@ -85,7 +85,7 @@
       place(tile("UV index", feed(["wx.uv", "wx.uv_band", "wx.uv_max"], ([v, b, m]) => div({ style: "display:flex;gap:16px;align-items:center;width:100%;height:100%" }, pane(bignum(num(v, 1))),
         div({ style: "font:600 15px/1.35 var(--sans)" }, b ?? "–", div({ style: "font:500 12px var(--mono)" }, `max ${num(m, 1)}`)))), { glyph: "sun", count: feed("wx.uv", (v) => [sigil("level", [Math.min(11, v ?? 0), 11], 11), " scale 0–11+"]),
         // the day's curve is the tile's background: nothing else moves for it
-        back: feed(["wx.uv_day", "time.minute"], ([day]) => { const d = new Date(); return dayCurve(day ?? Array(24).fill(0), { now: d.getHours() + d.getMinutes() / 60, max: 1.5, w: 243, h: 134, padT: 34, padB: 30, guides: [[3, "3"], [6, "6"]] }); }, MIN) }), "3 / 3 / 4 / 5"),
+        back: feed(["wx.uv_day", "time.minute"], ([day]) => { const d = new Date(); return dayCurve(day ?? Array(24).fill(0), { now: d.getHours() + d.getMinutes() / 60, max: 1.5, w: 243, h: 134, padT: 34, padB: 28.25, baseline: false, guides: [[3, "3"], [6, "6"]] }); }, MIN) }), "3 / 3 / 4 / 5"),
       place(tile("Air quality", feed(["aq.eaqi", "aq.band", "aq.pm25"], ([v, b, pm]) => div({ style: "display:flex;gap:16px;align-items:center;width:100%;height:100%" }, pane(bignum(num(v))),
         div({ style: "font:600 15px/1.35 var(--sans)" }, b ?? "–", div({ style: "font:500 12px var(--mono)" }, `PM2.5 ${num(pm, 1)}`)))), { glyph: "leaf", count: feed(["aq.band", "aq.main"], ([b, m]) => [sigil("state", b === "good" || b === "fair" ? "ok" : b === "moderate" ? "warn" : "err", 10), ` European AQI · ${m ?? ""}`]) }), "3 / 5 / 4 / 7"),
     );
