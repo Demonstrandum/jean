@@ -82,12 +82,10 @@
         count: feed(["wx.rain_from", "wx.pop"], ([r, p]) => (r ? `rain from ${r}` : "no rain expected") + ` · peak ${Math.max(0, ...(p ?? []))}%`) }), "2 / 3 / 3 / 7"),
       place(tile("Wind", feed(["wx.wind", "wx.wind_dir"], ([w, d]) => div({ style: "display:flex;gap:14px;align-items:center;width:100%;height:100%" }, sigil("dir", d ?? 0, 38), pane(bignum(num(w), { unit: "mph" })))), { glyph: "wind",
         count: feed(["wx.wind_dir", "wx.pressure"], ([d, p]) => `from ${compass(d)} · ${num(p)} hPa`) }), "3 / 1 / 4 / 3"),
-      place(tile("UV index", feed(["wx.uv", "wx.uv_band", "wx.uv_day", "time.minute"], ([v, b, day]) => {
-        const d = new Date(), hour = d.getHours() + d.getMinutes() / 60;
-        return div({ style: "display:flex;gap:10px;align-items:center;width:100%;height:100%" },
-          div({ style: "flex:none;width:62px;height:100%;display:flex;flex-direction:column;justify-content:center" }, pane(bignum(num(v, 1))), div({ style: "font:600 12px var(--sans)" }, b ?? "–")),
-          div({ style: "flex:1;min-width:0" }, dayCurve(day ?? Array(24).fill(0), { now: hour, max: 1.5, w: 190, h: 74, guides: [[3, "3"], [6, "6"]], labels: [["06", 6], ["12", 12], ["18", 18]] })));
-      }, MIN), { glyph: "sun", count: feed(["wx.uv_max", "wx.uv_peak"], ([m, pk]) => `peak ${num(m, 1)} at ${pk ?? "–"}`) }), "3 / 3 / 4 / 5"),
+      place(tile("UV index", feed(["wx.uv", "wx.uv_band", "wx.uv_max"], ([v, b, m]) => div({ style: "display:flex;gap:16px;align-items:center;width:100%;height:100%" }, pane(bignum(num(v, 1))),
+        div({ style: "font:600 15px/1.35 var(--sans)" }, b ?? "–", div({ style: "font:500 12px var(--mono)" }, `max ${num(m, 1)}`)))), { glyph: "sun", count: feed("wx.uv", (v) => [sigil("level", [Math.min(11, v ?? 0), 11], 11), " scale 0–11+"]),
+        // the day's curve is the tile's background: nothing else moves for it
+        back: feed(["wx.uv_day", "time.minute"], ([day]) => { const d = new Date(); return dayCurve(day ?? Array(24).fill(0), { now: d.getHours() + d.getMinutes() / 60, max: 1.5, w: 243, h: 134, padT: 34, padB: 30, guides: [[3, "3"], [6, "6"]] }); }, MIN) }), "3 / 3 / 4 / 5"),
       place(tile("Air quality", feed(["aq.eaqi", "aq.band", "aq.pm25"], ([v, b, pm]) => div({ style: "display:flex;gap:16px;align-items:center;width:100%;height:100%" }, pane(bignum(num(v))),
         div({ style: "font:600 15px/1.35 var(--sans)" }, b ?? "–", div({ style: "font:500 12px var(--mono)" }, `PM2.5 ${num(pm, 1)}`)))), { glyph: "leaf", count: feed(["aq.band", "aq.main"], ([b, m]) => [sigil("state", b === "good" || b === "fair" ? "ok" : b === "moderate" ? "warn" : "err", 10), ` European AQI · ${m ?? ""}`]) }), "3 / 5 / 4 / 7"),
     );

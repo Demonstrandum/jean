@@ -637,9 +637,10 @@ const moon = (phase: number, size = 64) => {
 // ------------------------------------------- modules: tiles, dials, rulers
 
 /** A launcher-style module: label top-left, something in the middle, a count bottom-left. */
-const tile = (label: string, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: string; waves?: boolean | Parameters<typeof waves>[0] } = {}) =>
-  h("section", { class: `tile${o.inverted ? " inv" : ""}${o.bleed ? " bleed" : ""}${o.waves ? " has-waves" : ""}${o.tone ? " " + o.tone : ""}` },
+const tile = (label: string, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: string; waves?: boolean | Parameters<typeof waves>[0]; back?: Node } = {}) =>
+  h("section", { class: `tile${o.inverted ? " inv" : ""}${o.bleed ? " bleed" : ""}${o.waves ? " has-waves" : ""}${o.back ? " has-back" : ""}${o.tone ? " " + o.tone : ""}` },
     o.waves ? waves(o.waves === true ? {} : o.waves) : null,
+    o.back ? h("div", { class: "tile-back" }, o.back) : null,
     h("div", { class: "tile-head" }, h("span", { class: "tile-label" }, o.glyph && icon(o.glyph, { size: 12, stroke: 1.15 }), label), h("span", { class: "tile-id" })),
     h("div", { class: "tile-body" }, body),
     o.count != null && h("div", { class: "tile-count" }, o.count));
@@ -1321,7 +1322,11 @@ const limitBars = (values: number[], o: { limit: number; w?: number; h?: number;
   if (o.window) {
     const a = X(o.window[0]), b = X(o.window[1]) + bw, ty = base + 7;
     g += `<path d="M${a.toFixed(1)} ${ty - 4}v6h${(b - a).toFixed(1)}v-6" stroke-width="1.5"/>`;
-    if (o.windowLabel) g += `<text x="${((a + b) / 2).toFixed(1)}" y="${ty + 15}" text-anchor="middle" fill="currentColor" stroke="none" style="font:700 11px var(--mono)">${escHtml(o.windowLabel)}</text>`;
+    if (o.windowLabel) {
+      // beside the bracket, on whichever side has the room, so it never sits on the hour labels below
+      const need = o.windowLabel.length * 6.7 + 8, right = W - b >= need || W - b >= a;
+      g += `<text x="${(right ? b + 6 : a - 6).toFixed(1)}" y="${ty + 3}" text-anchor="${right ? "start" : "end"}" fill="currentColor" stroke="none" style="font:700 11px var(--mono)">${escHtml(o.windowLabel)}</text>`;
+    }
   }
   for (const [t, i] of o.labels ?? []) g += `<text x="${(X(i) + (i === 0 ? 0 : bw / 2)).toFixed(1)}" y="${H - 3}" text-anchor="${i === 0 ? "start" : "middle"}" fill="currentColor" stroke="none" style="font:600 12px var(--mono)">${escHtml(t)}</text>`;
   const el = h("div", { class: "limitbars" });
@@ -1351,8 +1356,8 @@ const place = <T extends HTMLElement>(node: T, area: string): T => {
  * `values` are the 24 hours from 00:00; `now` is the hour as a fraction (20.5 = 20:30); `guides` are dotted [value, label] lines
  * (UV 3 = moderate, 6 = high); the scale runs to at least `max` so a weak winter curve reads as weak, not as full height.
  */
-const dayCurve = (values: number[], o: { now?: number; w?: number; h?: number; max?: number; guides?: [number, string][]; labels?: [string, number][] } = {}) => {
-  const W = o.w ?? 240, H = o.h ?? 74, padT = 8, padB = 14, n = values.length, base = H - padB;
+const dayCurve = (values: number[], o: { now?: number; w?: number; h?: number; max?: number; padT?: number; padB?: number; guides?: [number, string][]; labels?: [string, number][] } = {}) => {
+  const W = o.w ?? 240, H = o.h ?? 74, padT = o.padT ?? 8, padB = o.padB ?? 14, n = values.length, base = H - padB;
   const max = Math.max(o.max ?? 0, ...values, 0.5), id = `hz${++svgSeq}`;
   const X = (hour: number) => (hour / n) * W, Y = (v: number) => base - (Math.max(0, v) / max) * (base - padT);
   const pts: [number, number][] = [[0, values[0]], ...values.map((v, i): [number, number] => [i + 0.5, v]), [n, values[n - 1]]].map(([hh, v]) => [X(hh), Y(v)] as [number, number]);
@@ -1840,6 +1845,10 @@ const style = h("style", `${fontFaceCss()}
 #screen .cline .avatar{width:30px;background:#000;color:#fff;display:grid;place-items:center;flex:none}
 #screen .cline .txt{flex:1;font:600 14px/1.3 var(--sans);padding:6px 10px}
 #screen .cline .t{font:500 11px var(--sans);padding:6px 10px;border-left:1px solid #000}
+#screen .tile-back{position:absolute;inset:0;z-index:0;pointer-events:none}
+#screen .tile.has-back>*:not(.tile-back){position:relative;z-index:1}
+#screen .tile-back .feed{display:block;width:100%;height:100%}
+#screen .tile-back .daycurve,#screen .tile-back .daycurve svg{display:block;width:100%;height:100%;max-width:none}
 #screen .daycurve svg,#screen .limitbars svg,#screen .daystrip svg,#screen .timeline svg,#screen .areachart svg{display:block;width:100%;height:auto}
 #screen .dotbars svg,#screen .waffle svg,#screen .arcgauge svg{display:block;width:100%;height:auto}
 #screen .tile.fill .tile-body>.arcgauge{flex:none;width:118px;margin:0 auto}
