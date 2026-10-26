@@ -1476,45 +1476,41 @@ const giant = (value: Child, o: { size?: number; unit?: string } = {}) =>
 
 /** Sigils for a corner cluster: sig.* values (or the legacy [kind, value] pairs), or a function returning them (re-read at every redraw). */
 type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark | [SigKind, any?])[]);
-// ------------------------------------------------ Cistercian numerals
-// A medieval monastic notation: one vertical stem, and each decimal digit a few strokes in one of its four corners. Units sit top-right, tens
-// top-left (mirrored), hundreds bottom-right (flipped), thousands bottom-left: a number up to 9999 is ONE glyph, and a time is two.
+// ------------------------------------------------ box numerals
+// Ten digits, each a small square drawn with some of its sides left out: 0 is the whole square, 1 a U (open top), 2 a C (open right), 3 an L,
+// 4 an upside-down U (open bottom), 5 the two verticals, 6 a corner (left and top), 7 one centre stroke, 8 a reversed C (open left), 9 the other
+// corner (right and bottom). Small, square and legible at a few pixels: good for a clock in a margin.
 
-/** The strokes of a unit digit 1..9 in the top-right corner, as [x1, y1, x2, y2] with the stem at x = 0 and the corner box 1 wide and 1 tall. */
-const CISTERCIAN_UNITS: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>> = {
-  1: [[0, 0, 1, 0]],
-  2: [[0, 1, 1, 1]],
-  3: [[0, 0, 1, 1]],
-  4: [[0, 1, 1, 0]],
-  5: [[0, 1, 1, 0], [0, 0, 1, 0]],
-  6: [[1, 0, 1, 1]],
-  7: [[0, 0, 1, 0], [1, 0, 1, 1]],
-  8: [[0, 1, 1, 1], [1, 0, 1, 1]],
-  9: [[0, 0, 1, 0], [0, 1, 1, 1], [1, 0, 1, 1]],
+/** The sides of the unit square a digit draws: top, right, bottom, left, and the centre stroke. */
+const BOX_SIDES: Readonly<Record<number, readonly ("top" | "right" | "bottom" | "left" | "centre")[]>> = {
+  0: ["top", "right", "bottom", "left"],
+  1: ["left", "bottom", "right"],
+  2: ["top", "left", "bottom"],
+  3: ["left", "bottom"],
+  4: ["left", "top", "right"],
+  5: ["left", "right"],
+  6: ["left", "top"],
+  7: ["centre"],
+  8: ["top", "right", "bottom"],
+  9: ["right", "bottom"],
 };
-/**
- * SVG path data of a Cistercian numeral for 0..9999, in a box 2 wide and 3 tall (x from -1 to 1, y from 0 to 3): the stem, then each
- * non-zero digit's strokes in its corner (units top-right, tens top-left, hundreds bottom-right, thousands bottom-left).
- */
-const cistercianPath = (n: number): string => {
-  const v = Math.max(0, Math.min(9999, Math.trunc(n)));
-  let d = "M0 0V3";
-  [v % 10, Math.floor(v / 10) % 10, Math.floor(v / 100) % 10, Math.floor(v / 1000) % 10].forEach((digit, place) => {
-    const sx = place === 1 || place === 3 ? -1 : 1, flip = place >= 2;
-    for (const [x1, y1, x2, y2] of CISTERCIAN_UNITS[digit] ?? []) d += `M${sx * x1} ${flip ? 3 - y1 : y1}L${sx * x2} ${flip ? 3 - y2 : y2}`;
-  });
-  return d;
-};
-/** A Cistercian numeral (0..9999) as an inline mark, `height` px tall (default 1.4em). Hours and minutes are two small ones: cistercianClock. */
-const cistercian = (n: number, o: { height?: number } = {}): HTMLElement => {
-  const hgt = o.height ?? 16, el = h("span", { class: "icon cist", title: String(n) });
-  el.innerHTML = `<svg viewBox="-1.3 -0.3 2.6 3.6" width="${((hgt * 2.6) / 3.6).toFixed(1)}" height="${hgt}" fill="none" stroke="currentColor" stroke-width="0.26" stroke-linecap="square"><path d="${cistercianPath(n)}"/></svg>`;
+const BOX_STROKES = { top: [0, 0, 1, 0], right: [1, 0, 1, 1], bottom: [0, 1, 1, 1], left: [0, 0, 0, 1], centre: [0.5, 0, 0.5, 1] } as const;
+/** SVG path data of one digit 0..9, in a box `w` wide and `h` tall at (x, y): the unit square by default. */
+const boxDigitPath = (digit: number, w = 1, h = 1, x = 0, y = 0): string =>
+  (BOX_SIDES[Math.max(0, Math.min(9, Math.trunc(digit)))] ?? []).map((side) => { const [x1, y1, x2, y2] = BOX_STROKES[side]; return `M${(x + x1 * w).toFixed(2)} ${(y + y1 * h).toFixed(2)}L${(x + x2 * w).toFixed(2)} ${(y + y2 * h).toFixed(2)}`; }).join("");
+/** The decimal digits of a non-negative whole number, most significant first (padded with zeros to `width` digits). */
+const digitsOf = (n: number, width = 1): number[] => String(Math.max(0, Math.trunc(n))).padStart(width, "0").split("").map(Number);
+/** A number as box digits in a row, `height` px tall (each digit a little narrower than tall), `width` digits at least. */
+const boxNumeral = (n: number, o: { height?: number; width?: number } = {}): HTMLElement => {
+  const hgt = o.height ?? 14, ds = digitsOf(n, o.width ?? 1), cw = 0.72, gap = 0.45, wUnits = ds.length * cw + (ds.length - 1) * gap;
+  const el = h("span", { class: "icon box", title: String(n) });
+  el.innerHTML = `<svg viewBox="-0.15 -0.15 ${(wUnits + 0.3).toFixed(2)} 1.3" width="${((hgt * (wUnits + 0.3)) / 1.3).toFixed(1)}" height="${hgt}" fill="none" stroke="currentColor" stroke-width="0.09" stroke-linecap="square">${ds.map((d, i) => `<path d="${boxDigitPath(d, cw, 1, i * (cw + gap), 0)}"/>`).join("")}</svg>`;
   return el;
 };
-/** A time as two Cistercian numerals, hours then minutes (each 0..59 fits in the stem's two top corners). `at` is epoch ms (default now). */
-const cistercianClock = (at: number = Date.now(), o: { height?: number } = {}): HTMLElement => {
+/** A time as box digits, HH:MM (two dots between): `at` is epoch ms, default now. */
+const boxClock = (at: number = Date.now(), o: { height?: number } = {}): HTMLElement => {
   const d = new Date(at);
-  return h("span", { class: "cistclock" }, cistercian(d.getHours(), o), cistercian(d.getMinutes(), o));
+  return h("span", { class: "boxclock" }, boxNumeral(d.getHours(), { ...o, width: 2 }), ":", boxNumeral(d.getMinutes(), { ...o, width: 2 }));
 };
 
 // ------------------------------------------------ typed marks: sigils without strings
@@ -1621,6 +1617,7 @@ let screenDefs = new Map<string, ScreenState>();
 let currentScreen: string | null = null, screenJobs: number[] = [], returnTimer: number | undefined, homeScreen: string | null = null;
 const touchedScreens = new Set<string>();
 const HOLD_DEFAULT = 120_000;
+let navigationOn = true;
 
 const toneClass = (t: TileSpec["tone"]): string | undefined => (t === undefined ? undefined : Array.isArray(t) ? t.join(" ") : (t as string));
 const resolveBody = <T extends Child>(b: Slot<T> | undefined): T | undefined => (typeof b === "function" ? (b as () => T)() : b);
@@ -1740,17 +1737,19 @@ function drawFrame(): void {
   if (tabs.length) {
     // the screens you can ask for, one glyph each, compact in the top margin between the corner clusters; the current one on a solid square.
     // Display only: say "show energy". (The layer is blended with "difference": the white square shows black, and black text on it shows white.)
-    const cell = 15, gap = 3, x0 = (w - (tabs.length * cell + (tabs.length - 1) * gap)) / 2, y = 1;
+    const cell = 15, gap0 = 3, x0 = (w - (tabs.length * cell + (tabs.length - 1) * gap0)) / 2, y = 1;
     tabs.forEach((sc, i) => {
-      const x = x0 + i * (cell + gap), on = sc.id === currentScreen;
+      const x = x0 + i * (cell + gap0), on = sc.id === currentScreen;
       if (on) marks += `<rect x="${f(x)}" y="${y}" width="${cell}" height="${cell}" fill="currentColor" stroke="none"/>`;
       marks += `<text x="${f(x + cell / 2)}" y="${f(y + 11.4)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font:${on ? 400 : 300} 11.5px var(--sans)">${escHtml(sc.tab)}</text>`;
     });
     if (frameOpts.clock) {
-      // a small clock beside the tabs: hours and minutes as Cistercian numerals (one glyph each), a colon of two dots between
-      const now = new Date(), u = 4.6, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap) / 2 + 34, gy = 1.5;
-      const glyph = (n: number, x: number) => `<g transform="translate(${f(x)} ${gy}) scale(${u})"><path d="${cistercianPath(n)}" stroke-width="${(1.15 / u).toFixed(3)}" stroke-linecap="square"/></g>`;
-      marks += glyph(now.getHours(), gx + u) + glyph(now.getMinutes(), gx + 3.3 * u) + `<path d="M${f(gx + 2.15 * u)} ${gy + 0.9 * u}h0.01M${f(gx + 2.15 * u)} ${gy + 2.1 * u}h0.01" stroke-width="1.8" stroke-linecap="square"/>`;
+      // a small clock beside the tabs: HH:MM as box digits (a square with sides left out), a colon of two dots between the pairs
+      const now = new Date(), ch = 11, cw = 7.2, gap = 2.4, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 2.5;
+      const digit = (dgt: number, x: number) => `<path d="${boxDigitPath(dgt, cw, ch, x, gy)}" stroke-width="1.2" stroke-linecap="square"/>`;
+      const hh = digitsOf(now.getHours(), 2), mm = digitsOf(now.getMinutes(), 2), pair = 2 * cw + gap, colon = 6;
+      marks += digit(hh[0], gx) + digit(hh[1], gx + cw + gap) + digit(mm[0], gx + pair + colon) + digit(mm[1], gx + pair + colon + cw + gap)
+        + `<path d="M${f(gx + pair + colon / 2 - 0.5)} ${f(gy + 3.2)}h0.01M${f(gx + pair + colon / 2 - 0.5)} ${f(gy + 7.8)}h0.01" stroke-width="1.8" stroke-linecap="square"/>`;
     }
   } else {
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
@@ -2421,7 +2420,7 @@ const watchers = new Set<Watcher>();
 function setById(id: string, v: unknown, ts: number = Date.now()): void {
   const k = keyRegistry.get(id);
   if (k && v !== null && k.sample !== null && (typeof v !== typeof k.sample || Array.isArray(v) !== Array.isArray(k.sample))) console.warn(`ui: key ${id} expects ${Array.isArray(k.sample) ? "an array" : typeof k.sample}, got`, v);
-  if (id === KEY_SCREEN.id && typeof v === "string" && v !== currentScreen) { data.set(id, { v, ts }); go(v); return; }   // navigation is immediate
+  if (id === KEY_SCREEN.id && typeof v === "string" && v !== currentScreen) { data.set(id, { v, ts }); if (navigationOn) go(v); return; }   // navigation is immediate
   const old = data.get(id);
   const changed = !old || JSON.stringify(old.v) !== JSON.stringify(v);
   data.set(id, { v, ts });
@@ -2800,6 +2799,8 @@ const ui = {
   /** The keys the kit itself owns (the rest are in the schema as K.*). */
   keys: { screen: KEY_SCREEN, hold: KEY_HOLD, minute: KEY_MINUTE, link: KEY_LINK },
   connect, push, run, link: (): Link => link,
+  /** Turn the server-driven navigation (the key K.ui.screen) off or on: a page that shows something else (a gallery sample) turns it off. */
+  navigation: (on: boolean) => { navigationOn = on; },
   /** Screens and the tab bar: defineScreen({id, tab, tiles}) go(id) screenOf(id).patchTile(...) screenIds() current() */
   defineScreen, go, screenOf: (id: string): ScreenHandle | undefined => (screenDefs.has(id) ? screenHandle(id) : undefined), screenIds: () => [...screenDefs.keys()], current: () => currentScreen,
   /** Show every screen with sample data and report how each fits (run inside a query so the DOM is restored). */
@@ -2812,7 +2813,7 @@ const ui = {
 const exported: Record<string, unknown> = {
   ...prims, row, col, grid, box, card, big, heading, divider, badge, stat, list, table, kv, progress,
   bars, sparkline, agenda, weather, md, clock, countdown, live,
-  cistercian, cistercianClock, usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
+  boxNumeral, boxClock, usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
   icon, weatherIcon, say, sunArc, hourly, habitGrid, timerRing, tearoff, note, presence, moon,
   tile, levelTile, dayDial, ruler, statStrip, pills, slider, menu, device, hero,
   panel, meta, claudeLine, tilegrid, dotClock, dayStrip, timeline, areaChart,

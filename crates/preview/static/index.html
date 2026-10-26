@@ -150,7 +150,7 @@
     },
     // Every icon (fitted to one live area), the sigils, and the weather symbols.
     icons() {
-      ui.size(800, 820);
+      ui.size(800, 900);
       ui.show(
         topbar("Icons", `${ui.icons().length} + weather`),
         div({ style: "display:grid;grid-template-columns:repeat(9,1fr);gap:12px 6px" },
@@ -164,8 +164,8 @@
           ["count", 1], ["count", 3], ["count", 5], ["count", 6], ["count", 9], ["dir", 0], ["dir", 90], ["dir", 220], ["bars", 1], ["bars", 4],
         ].map(([k, v]) => col({ class: "center" }, sigil(k, v, 26), small(`${k} ${Array.isArray(v) ? v.join("/") : v}`)))),
         divider(),
-        // Cistercian numerals: one stem, up to four digits in its corners (units top-right, tens top-left, hundreds bottom-right, thousands bottom-left)
-        row({ class: "fit" }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 90, 100, 1000, 1982, 2359].map((n) => col({ class: "center" }, cistercian(n, { height: 36 }), small(String(n)))).concat([col({ class: "center" }, cistercianClock(Date.now(), { height: 36 }), small("now"))]));
+        // box numerals: ten digits, each a small square with some sides left out
+        row({ class: "fit" }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1982, 2359].map((n) => col({ class: "center" }, boxNumeral(n, { height: 30 }), small(String(n)))).concat([col({ class: "center" }, boxClock(Date.now(), { height: 30 }), small("now"))])));
     },
   };
 
@@ -179,6 +179,7 @@
     if (sp.get("accent")) ui.accent("#" + sp.get("accent"));
     if (ek !== null) ui.eink({ algo: ek || "atkinson" });
     if (sample) {
+      ui.navigation(false);          // a sample stays on screen whatever the server was last told to show
       scenes[sample]();
       if (sample !== "icons") ui.frame({ title: sample + " · sample", sheet: `${Object.keys(scenes).indexOf(sample) + 1}/${Object.keys(scenes).length}`, ...SIG });
     } else {

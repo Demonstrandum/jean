@@ -899,30 +899,37 @@ giant(value: Child, o: { size?: number; unit?: string } = {})
 An oversized numeral (default 240px). Put it in a tile with {bleed: true}: it sits on the module's
 floor and the module's edge crops it, on purpose. Keep the real value in the label or count.
 
-### `cistercianPath`
+### `boxDigitPath`
 
 ```ts
-cistercianPath(n: number): string
+boxDigitPath(digit: number, w = 1, h = 1, x = 0, y = 0): string
 ```
 
-SVG path data of a Cistercian numeral for 0..9999, in a box 2 wide and 3 tall (x from -1 to 1, y from 0 to 3): the stem, then each
-non-zero digit's strokes in its corner (units top-right, tens top-left, hundreds bottom-right, thousands bottom-left).
+SVG path data of one digit 0..9, in a box `w` wide and `h` tall at (x, y): the unit square by default.
 
-### `cistercian`
+### `digitsOf`
 
 ```ts
-cistercian(n: number, o: { height?: number } = {}): HTMLElement
+digitsOf(n: number, width = 1): number[]
 ```
 
-A Cistercian numeral (0..9999) as an inline mark, `height` px tall (default 1.4em). Hours and minutes are two small ones: cistercianClock.
+The decimal digits of a non-negative whole number, most significant first (padded with zeros to `width` digits).
 
-### `cistercianClock`
+### `boxNumeral`
 
 ```ts
-cistercianClock(at: number = Date.now(), o: { height?: number } = {}): HTMLElement
+boxNumeral(n: number, o: { height?: number; width?: number } = {}): HTMLElement
 ```
 
-A time as two Cistercian numerals, hours then minutes (each 0..59 fits in the stem's two top corners). `at` is epoch ms (default now).
+A number as box digits in a row, `height` px tall (each digit a little narrower than tall), `width` digits at least.
+
+### `boxClock`
+
+```ts
+boxClock(at: number = Date.now(), o: { height?: number } = {}): HTMLElement
+```
+
+A time as box digits, HH:MM (two dots between): `at` is epoch ms, default now.
 
 ### `sig.state`
 
@@ -1501,6 +1508,14 @@ ui.data()
 ui.link(): Link
 ```
 
+### `ui.navigation`
+
+```ts
+ui.navigation(on: boolean)
+```
+
+Turn the server-driven navigation (the key K.ui.screen) off or on: a page that shows something else (a gallery sample) turns it off.
+
 ### `ui.screenOf`
 
 ```ts
@@ -1850,13 +1865,13 @@ icon("sun") ... a named icon (size defaults to the surrounding font size). Unkno
 GLYPHS: Record<string, string[]>
 ```
 
-### `CISTERCIAN_UNITS`
+### `BOX_SIDES`
 
 ```ts
-CISTERCIAN_UNITS: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>>
+BOX_SIDES: Readonly<Record<number, readonly ("top" | "right" | "bottom" | "left" | "centre")[]>>
 ```
 
-The strokes of a unit digit 1..9 in the top-right corner, as [x1, y1, x2, y2] with the stem at x = 0 and the corner box 1 wide and 1 tall.
+The sides of the unit square a digit draws: top, right, bottom, left, and the centre stroke.
 
 ### `STATE_WIRE`
 
