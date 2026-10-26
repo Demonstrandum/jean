@@ -1347,7 +1347,7 @@ const place = <T extends HTMLElement>(node: T, area: string): T => {
 };
 
 /** LED-style histogram: columns of dots lit from the bottom. Values 0..1. */
-const dotBars = (values: number[], o: { rows?: number } = {}) => {
+const dotBars = (values: number[], o: { rows?: number; labels?: string[] } = {}) => {
   const rows = o.rows ?? 10, p = 12;
   let dots = "";
   values.forEach((v, x) => {
@@ -1355,7 +1355,9 @@ const dotBars = (values: number[], o: { rows?: number } = {}) => {
     for (let y = 0; y < rows; y++) dots += `<circle cx="${((x + 0.5) * p).toFixed(1)}" cy="${((y + 0.5) * p).toFixed(1)}" r="${(p * (y >= rows - lit ? 0.4 : 0.07)).toFixed(2)}"/>`;
   });
   const el = h("div", { class: "dotbars" });
-  el.innerHTML = `<svg viewBox="0 0 ${values.length * p} ${rows * p}" fill="currentColor">${dots}</svg>`;
+  // optional labels under the columns (e.g. the hour of each): a band below the dots, one text per column
+  const lab = (o.labels ?? []).map((t, x) => `<text x="${((x + 0.5) * p).toFixed(1)}" y="${rows * p + 11}" text-anchor="middle" style="font:600 7.6px var(--mono);letter-spacing:-.2px">${escHtml(t)}</text>`).join("");
+  el.innerHTML = `<svg viewBox="0 0 ${values.length * p} ${rows * p + (o.labels ? 14 : 0)}" fill="currentColor">${dots}${lab}</svg>`;
   return el;
 };
 
