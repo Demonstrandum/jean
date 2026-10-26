@@ -1346,6 +1346,34 @@ const place = <T extends HTMLElement>(node: T, area: string): T => {
   return node;
 };
 
+/**
+ * A value over the day as a smooth curve (UV index, sun height), hatched underneath, with a line and a dot where "now" is.
+ * `values` are the 24 hours from 00:00; `now` is the hour as a fraction (20.5 = 20:30); `guides` are dotted [value, label] lines
+ * (UV 3 = moderate, 6 = high); the scale runs to at least `max` so a weak winter curve reads as weak, not as full height.
+ */
+const dayCurve = (values: number[], o: { now?: number; w?: number; h?: number; max?: number; guides?: [number, string][]; labels?: [string, number][] } = {}) => {
+  const W = o.w ?? 240, H = o.h ?? 74, padT = 8, padB = 14, n = values.length, base = H - padB;
+  const max = Math.max(o.max ?? 0, ...values, 0.5), id = `hz${++svgSeq}`;
+  const X = (hour: number) => (hour / n) * W, Y = (v: number) => base - (Math.max(0, v) / max) * (base - padT);
+  const pts: [number, number][] = [[0, values[0]], ...values.map((v, i): [number, number] => [i + 0.5, v]), [n, values[n - 1]]].map(([hh, v]) => [X(hh), Y(v)] as [number, number]);
+  const clampY = (y: number) => Math.min(base, Math.max(padT - 4, y));
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {        // Catmull-Rom through the hourly points, as cubic beziers
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${clampY(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${clampY(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  let g = `<path d="${d}L${W} ${base}L0 ${base}Z" fill="url(#${id})" stroke="none"/><path d="${d}" stroke-width="1.5"/><path d="M0 ${base}H${W}" stroke-width="1"/>`;
+  for (const [v, t] of o.guides ?? []) if (v <= max) g += `<path d="M0 ${Y(v).toFixed(1)}H${W}" stroke-width="0.8" stroke-dasharray="1.5 3"/><text x="${W - 1}" y="${(Y(v) - 2).toFixed(1)}" text-anchor="end" fill="currentColor" stroke="none" style="font:500 7px var(--mono)">${escHtml(t)}</text>`;
+  if (o.now != null) {
+    const nx = X(o.now), f = Math.max(0, Math.min(n - 1, o.now - 0.5)), i0 = Math.floor(f), v = values[i0] + ((values[Math.min(n - 1, i0 + 1)] - values[i0]) * (f - i0));
+    g += `<path d="M${nx.toFixed(1)} ${padT - 6}V${base}" stroke-width="1" stroke-dasharray="2 2"/><circle cx="${nx.toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="#fff" stroke-width="1.5"/>`;
+  }
+  for (const [t, hh] of o.labels ?? []) g += `<text x="${X(hh).toFixed(1)}" y="${H - 3}" text-anchor="middle" fill="currentColor" stroke="none" style="font:500 8px var(--mono)">${escHtml(t)}</text>`;
+  const el = h("div", { class: "daycurve" });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><defs>${HATCH(id)}</defs>${g}</svg>`;
+  return el;
+};
+
 /** LED-style histogram: columns of dots lit from the bottom. Values 0..1. */
 const dotBars = (values: number[], o: { rows?: number; labels?: string[] } = {}) => {
   const rows = o.rows ?? 10, p = 12;
@@ -1812,7 +1840,7 @@ const style = h("style", `${fontFaceCss()}
 #screen .cline .avatar{width:30px;background:#000;color:#fff;display:grid;place-items:center;flex:none}
 #screen .cline .txt{flex:1;font:600 14px/1.3 var(--sans);padding:6px 10px}
 #screen .cline .t{font:500 11px var(--sans);padding:6px 10px;border-left:1px solid #000}
-#screen .limitbars svg,#screen .daystrip svg,#screen .timeline svg,#screen .areachart svg{display:block;width:100%;height:auto}
+#screen .daycurve svg,#screen .limitbars svg,#screen .daystrip svg,#screen .timeline svg,#screen .areachart svg{display:block;width:100%;height:auto}
 #screen .dotbars svg,#screen .waffle svg,#screen .arcgauge svg{display:block;width:100%;height:auto}
 #screen .tile.fill .tile-body>.arcgauge{flex:none;width:118px;margin:0 auto}
 #screen .tile .net{font:600 14px/1.3 var(--sans);white-space:nowrap}
@@ -2482,7 +2510,7 @@ const exported: Record<string, unknown> = {
   icon, weatherIcon, say, sunArc, hourly, habitGrid, timerRing, tearoff, note, presence, moon,
   tile, levelTile, dayDial, ruler, statStrip, pills, slider, menu, device, hero,
   panel, meta, claudeLine, tilegrid, dotClock, dayStrip, timeline, areaChart,
-  place, limitBars, dotBars, waffle, stackBar, arcGauge, band, giant,
+  place, limitBars, dayCurve, dotBars, waffle, stackBar, arcGauge, band, giant,
   statusStrip, segbar, readouts, kvgrid, skybox, header, ruled, toneStrip, routes, waves, dotMirror, sparkRows, bignum, polar, ridgeline, word, sigil, sigils, usageTile,
   clamp, fill, spacer, center, chips, topbar, banner, quote, trend, todo, gauge, month, lineChart, image,
 };

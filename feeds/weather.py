@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Weather, sun and moon from Open-Meteo (free, no key), every 10 min, for the lat/lon in config.json.
 Keys: wx.temp wx.feels wx.kind wx.text wx.wind wx.wind_dir wx.cloud (oktas) wx.pressure wx.hourly wx.pop wx.hours (HH of each hourly value) wx.rain_from
-      wx.uv wx.uv_max wx.uv_band
+      wx.uv wx.uv_max wx.uv_band wx.uv_day (today, 24 hourly values from 00:00) wx.uv_peak (HH:00 of the maximum)
       sun.rise sun.set (local HH:MM) moon.phase (0 new .. 0.5 full) moon.name
       aq.eaqi aq.band aq.pm25 aq.pm10 aq.no2 aq.o3 aq.main (European AQI from Open-Meteo's air-quality API; 0-20 good .. over 100 extremely poor)"""
 import datetime, math
@@ -70,6 +70,7 @@ def step():
     uv = round(uvs[start], 1) if start < len(uvs) and uvs[start] is not None else 0
     put({
         "wx.uv": uv, "wx.uv_max": round(j["daily"]["uv_index_max"][0], 1), "wx.uv_band": uv_band(uv),
+        "wx.uv_day": [round(v or 0, 1) for v in uvs[:24]], "wx.uv_peak": "%02d:00" % max(range(24), key=lambda i: uvs[i] or 0),
         "wx.hours": [times[start + i].strftime("%H") for i in range(len(temps))],
     })
     put({
