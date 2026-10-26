@@ -1356,7 +1356,7 @@ const dotBars = (values: number[], o: { rows?: number; labels?: string[] } = {})
   });
   const el = h("div", { class: "dotbars" });
   // optional labels under the columns (e.g. the hour of each): a band below the dots, one text per column
-  const lab = (o.labels ?? []).map((t, x) => `<text x="${((x + 0.5) * p).toFixed(1)}" y="${rows * p + 11}" text-anchor="middle" style="font:600 7.6px var(--mono);letter-spacing:-.2px">${escHtml(t)}</text>`).join("");
+  const lab = (o.labels ?? []).map((t, x) => `<text x="${((x + 0.5) * p).toFixed(1)}" y="${rows * p + 11}" text-anchor="middle" style="font:400 6.6px var(--mono)">${escHtml(t)}</text>`).join("");
   el.innerHTML = `<svg viewBox="0 0 ${values.length * p} ${rows * p + (o.labels ? 14 : 0)}" fill="currentColor">${dots}${lab}</svg>`;
   return el;
 };
