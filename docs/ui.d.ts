@@ -387,6 +387,8 @@ interface ScreenReport { readonly screen: string; readonly ok: boolean; readonly
  * Call it inside a query or tx so the DOM is restored too. */
 declare function selfTest(empty?: any): ScreenReport[];
 declare function snapshot(): string;
+/** Generated ids (`hz15`) come from a counter that depends on how many renders came before; number them by first appearance instead. */
+declare function canonicalIds(html: string): string;
 /** Every screen as HTML, rendered from each key's sample data: what crystallizing the journal must leave unchanged. The live scene is put back afterwards. */
 declare function frames(): Record<string, string>;
 /** Run fn, then verify(). If fn throws, its changes are rolled back too. */

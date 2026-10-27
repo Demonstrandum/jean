@@ -2653,6 +2653,15 @@ function selfTest(empty = false): ScreenReport[] {
 
 const snapshot = (): string => root.innerHTML.replace(/ data-dropped=""/g, "");
 
+/** Generated ids (`hz15`) come from a counter that depends on how many renders came before; number them by first appearance instead. */
+const canonicalIds = (html: string): string => {
+  const rename = new Map<string, string>(), seen = new Map<string, number>();
+  for (const m of html.matchAll(/\bid="([a-z]+)(\d+)"/g)) {
+    if (!rename.has(m[1] + m[2])) { const n = (seen.get(m[1]) ?? 0) + 1; seen.set(m[1], n); rename.set(m[1] + m[2], m[1] + n); }
+  }
+  return html.replace(/\b[a-z]+\d+\b/g, (w) => rename.get(w) ?? w);
+};
+
 /** Every screen as HTML, rendered from each key's sample data: what crystallizing the journal must leave unchanged. The live scene is put back afterwards. */
 function frames(): Record<string, string> {
   const saved = new Map(data), prev = currentScreen, out: Record<string, string> = {};
@@ -2660,7 +2669,7 @@ function frames(): Record<string, string> {
   for (const id of [...screenDefs.keys()].sort()) {
     renderScreen(id);
     adapt();
-    out[id] = snapshot();
+    out[id] = canonicalIds(snapshot());
   }
   data.clear();
   for (const [id, d] of saved) data.set(id, d);

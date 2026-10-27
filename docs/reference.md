@@ -1404,6 +1404,14 @@ Call it inside a query or tx so the DOM is restored too.
 snapshot(): string
 ```
 
+### `canonicalIds`
+
+```ts
+canonicalIds(html: string): string
+```
+
+Generated ids (`hz15`) come from a counter that depends on how many renders came before; number them by first appearance instead.
+
 ### `frames`
 
 ```ts

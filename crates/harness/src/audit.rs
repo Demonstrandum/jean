@@ -34,6 +34,8 @@ pub enum Action {
     ScraperRepaired,
     ScraperRepairRejected,
     Approved,
+    Crystallized,
+    CrystallizeRejected,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -21,3 +21,4 @@ pub mod audit;
 pub mod promote;
 pub mod work;
 pub mod scraper;
+pub mod crystal;
