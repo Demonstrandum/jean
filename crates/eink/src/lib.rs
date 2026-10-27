@@ -5,7 +5,7 @@ pub mod cdp;
 pub mod dither;
 pub mod rfb;
 
-/// A 1-bit image kept one byte per pixel: 0 is black, 255 is white.
+/// An image kept one byte per pixel: 0 is black, 255 is white; for a 1-bit panel only those two, for a grayscale one 16 levels.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Frame {
     pub w: usize,
@@ -121,6 +121,12 @@ impl Panel {
         }
     }
 
+    /// Whether the panel is shown in 1 bit (dithered) or in 16 gray levels. The reMarkable 2's glass is 16-level grayscale: dithered dots that are re-driven
+    /// on every repaint flash dark and contrasty, real grays do not, so the quarter-turned panels (the AppLoad viewer's) are grayscale.
+    pub fn dithered(self) -> bool {
+        !matches!(self, Panel::Remarkable2TurnedCw | Panel::Remarkable2TurnedCcw)
+    }
+
     /// The scene's size for this panel, in CSS pixels: the design's 800x480, or 800x600 on the reMarkable 2 so that it is 4:3 like the panel and
     /// fills it edge to edge (the layout's rows are flexible; nothing is stretched).
     pub fn scene(self) -> (usize, usize) {
@@ -163,7 +169,7 @@ impl Panel {
     }
 }
 
-/// Gray pixels (one byte each, 0..=255) of size `rw x rh` put on a white panel, then dithered to 1 bit.
+/// Gray pixels (one byte each, 0..=255) of size `rw x rh` put on a white panel, then dithered to 1 bit (or quantised to 16 grays, per `Panel::dithered`).
 pub fn compose(gray: &[u8], rw: usize, rh: usize, panel: Panel) -> Frame {
     let (pw, ph) = panel.laid_out_on().size();
     let (ox, oy) = panel.place((rw, rh));
@@ -177,7 +183,7 @@ pub fn compose(gray: &[u8], rw: usize, rh: usize, panel: Panel) -> Frame {
         Panel::Remarkable2TurnedCcw => (turn(&canvas, pw, ph, false), ph, pw),
         _ => (canvas, pw, ph),
     };
-    dither::atkinson_blocks(&canvas, w, h)
+    if panel.dithered() { dither::atkinson_blocks(&canvas, w, h) } else { dither::levels16(&canvas, w, h) }
 }
 
 /// A quarter turn of a `w x h` image: clockwise or anticlockwise; the result is `h x w`.

@@ -1,6 +1,6 @@
 /* jean-view: an AppLoad (QTFB) app for the reMarkable 2 that shows Jean's display.
  *
- * It is a minimal VNC (RFB 3.8) client for `eink-serve --panel rm2-portrait`: Raw encoding only, 32-bit BGRX pixels, no security.
+ * It is a minimal VNC (RFB 3.8) client for `eink-serve --panel rm2-portrait`: Raw encoding only, 32-bit BGRX pixels (the gray in each), no security.
  * Each update rectangle is written into the QTFB shared-memory framebuffer (RGB565, 1404x1872) and announced as a partial update, so
  * the panel refreshes only what changed. If the server goes away it waits and reconnects.
  *
@@ -230,7 +230,7 @@ static void session(int fd) {
             for (int yy = 0; yy < ht; yy++) {
                 if (read_all(fd, row, (size_t)w * 4)) goto out;
                 uint16_t *dst = fb + (size_t)(y + yy) * WIDTH + x;
-                for (int xx = 0; xx < w; xx++) dst[xx] = row[xx * 4] >= 128 ? 0xFFFF : 0x0000;
+                for (int xx = 0; xx < w; xx++) { uint16_t g = row[xx * 4]; dst[xx] = (uint16_t)(((g >> 3) << 11) | ((g >> 2) << 5) | (g >> 3)); } /* gray to RGB565 */
             }
             qtfb_update(UPDATE_PARTIAL, x, y, w, ht); /* each rectangle on its own: two distant changes are not one big refresh */
         }

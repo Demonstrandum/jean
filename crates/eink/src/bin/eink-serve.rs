@@ -42,15 +42,23 @@ fn main() {
         eink::write_png(path, &first).expect("cannot write the dump");
     }
     let screen: Arc<Screen> = Screen::new(first);
-    // a touch on the panel: find its place in the scene, ask the page what it should show, and navigate (the page itself is display-only)
+    // a touch on the panel: find its place in the scene, ask the page what it should show, show it in the page at once (no waiting for the poll or the
+    // next beat), and send the new frame straight away. The page itself is display-only; this is the relay.
     let show = {
-        let (browser, display) = (browser.clone(), display.clone());
+        let (browser, screen) = (browser.clone(), screen.clone());
         move |what: &str, query: String| {
-            match browser.lock().unwrap().evaluate(&query) {
+            let mut b = browser.lock().unwrap();
+            match b.evaluate(&query) {
                 Ok(serde_json::Value::String(name)) => {
                     eprintln!("eink-serve: {what} shows {name}");
-                    if let Err(e) = ureq::post(&format!("{display}/screen?name={name}")).call() {
+                    if let Err(e) = b.evaluate(&format!("ui.go({})", serde_json::to_string(&name).unwrap())) {
                         eprintln!("eink-serve: cannot show {name}: {e}");
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(60)); // let the page settle its layout and fonts
+                    match capture(&mut b, panel) {
+                        Ok(f) => screen.show(f),
+                        Err(e) => eprintln!("eink-serve: {e}"),
                     }
                 }
                 Ok(_) => eprintln!("eink-serve: {what} hits nothing"),

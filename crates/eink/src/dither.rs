@@ -23,6 +23,11 @@ pub fn atkinson(gray: &[u8], w: usize, h: usize) -> crate::Frame {
     crate::Frame { w, h, px: lum.iter().map(|&v| if v < 128.0 { 0 } else { 255 }).collect() }
 }
 
+/// Gray to 16 levels (0x00, 0x11 ... 0xFF), nothing else: the same input always gives the same pixel, so a repaint of unchanged content changes nothing.
+pub fn levels16(gray: &[u8], w: usize, h: usize) -> crate::Frame {
+    crate::Frame { w, h, px: gray.iter().map(|&v| (v & 0xF0) | (v >> 4)).collect() }
+}
+
 /// Atkinson in independent 64x64 blocks. Error diffusion over a whole frame makes one changed pixel re-roll every dot after it, so a ticking
 /// seconds glyph would repaint the gradients below it; with the error reset at each block, only the blocks whose input changed change.
 pub fn atkinson_blocks(gray: &[u8], w: usize, h: usize) -> crate::Frame {
@@ -64,6 +69,12 @@ mod tests {
         let light = atkinson(&vec![230; 64 * 64], 64, 64).px.iter().filter(|&&p| p == 0).count();
         let dark = atkinson(&vec![25; 64 * 64], 64, 64).px.iter().filter(|&&p| p == 0).count();
         assert!(light < 64 * 64 / 4 && dark > 64 * 64 * 3 / 4);
+    }
+
+    #[test]
+    fn sixteen_levels_keep_black_and_white_and_quantise_the_rest() {
+        let f = levels16(&[0, 255, 128, 17], 4, 1);
+        assert_eq!(f.px, vec![0x00, 0xFF, 0x88, 0x11]);
     }
 
     #[test]
