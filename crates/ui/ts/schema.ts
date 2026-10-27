@@ -332,7 +332,7 @@
     ui.frame({
       tabs: true,
       clock: true,
-      beat: true,
+      seconds: true,
       tl: () => [
         sig.state(ui.get(K.link.server) === Link.Up ? State.Ok : State.Err),
         sig.bars(ui.get(K.wifi.bars) ?? 0),

@@ -1106,17 +1106,6 @@ function go(id: string, o: { hold?: number } = {}): boolean
 
 Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays).
 
-### `beatRuler`
-
-```ts
-function beatRuler(x: number, y: number, now: number): string
-```
-
-The master clock as squares tiling squares, the way the scheduler counts: the first square is the hour tiled into its slow slots (5 min), the
-next is the current slot tiled into its beats (30 s), the last is the current beat tiled into its ticks (1 s). Cells that have come are filled
-(inset), the current one is solid and ringed, and its corners lead out to the square that tiles it. Positions are the scheduler's own slots
-(floor(now / period)), so what you read ran.
-
 ### `drawFrame`
 
 ```ts
@@ -1128,7 +1117,7 @@ Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners,
 ### `frame`
 
 ```ts
-function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; beat?: boolean } = true): void
+function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; seconds?: boolean } = true): void
 ```
 
 The drawing-sheet frame, in the screen margin: registration targets, two corner clusters of sigils (tl, tr),
