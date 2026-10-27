@@ -1,17 +1,25 @@
 //! Show the display on a panel over VNC: hold the display page open in headless Chrome, and about every second screenshot it, dither it,
 //! and publish it when it has changed.
-//!   eink-serve [--display http://127.0.0.1:8788] [--listen 0.0.0.0:5900] [--panel native|rm2|rm2-portrait|rm2-turned-cw|rm2-turned-ccw] [--every-ms 1000] [--chrome PATH] [--dump out.png]
+//! A panel that re-drives its whole window on every update (the reMarkable behind AppLoad seems to) cannot take a repaint every second, so small changes
+//! (the seconds, a percentage) are held and sent on the clock-aligned beat; a touch or any big change goes out at once.
+//!   eink-serve [--calm-ms 30000] [--display http://127.0.0.1:8788] [--listen 0.0.0.0:5900] [--panel native|rm2|rm2-portrait|rm2-turned-cw|rm2-turned-ccw] [--every-ms 1000] [--chrome PATH] [--dump out.png]
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Duration;
 
 use eink::cdp::{find_chrome, Browser};
 use eink::rfb::{serve, Gesture, OnGesture, Screen};
 use eink::{capture, Frame, Panel};
 
+/// Pixels changed below which a frame counts as a tick (the seconds, a percentage), not a new screen.
+const SMALL_CHANGE: usize = 12_000;
+
 fn main() {
     let mut a = std::env::args().skip(1);
     let mut dump: Option<String> = None;
+    let mut calm_ms: u64 = 30_000; // small changes wait for the next slot of this length on the wall clock; 0 sends everything as it comes
     let (mut display, mut listen, mut panel, mut every, mut chrome) = ("http://127.0.0.1:8788".to_string(), "0.0.0.0:5900".to_string(), Panel::Remarkable2Landscape, 1000u64, find_chrome());
     while let Some(flag) = a.next() {
         let mut val = || a.next().unwrap_or_else(|| panic!("{flag} needs a value"));
@@ -20,6 +28,7 @@ fn main() {
             "--listen" => listen = val(),
             "--every-ms" => every = val().parse().expect("a number"),
             "--dump" => dump = Some(val()),
+            "--calm-ms" => calm_ms = val().parse().expect("a number"),
             "--chrome" => chrome = Some(val().into()),
             "--panel" => {
                 panel = match val().as_str() {
@@ -44,8 +53,11 @@ fn main() {
     let screen: Arc<Screen> = Screen::new(first);
     // a touch on the panel: find its place in the scene, ask the page what it should show, show it in the page at once (no waiting for the poll or the
     // next beat), and send the new frame straight away. The page itself is display-only; this is the relay.
+    let last_slot = Arc::new(AtomicU64::new(0));
+    let slot_of = move |ms: u64| if calm_ms == 0 { ms } else { ms / calm_ms };
+    let now_ms = || SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
     let show = {
-        let (browser, screen) = (browser.clone(), screen.clone());
+        let (browser, screen, last_slot) = (browser.clone(), screen.clone(), last_slot.clone());
         move |what: &str, query: String| {
             let mut b = browser.lock().unwrap();
             match b.evaluate(&query) {
@@ -57,7 +69,10 @@ fn main() {
                     }
                     std::thread::sleep(Duration::from_millis(60)); // let the page settle its layout and fonts
                     match capture(&mut b, panel) {
-                        Ok(f) => screen.show(f),
+                        Ok(f) => {
+                            screen.show(f);
+                            last_slot.store(slot_of(now_ms()), Ordering::Relaxed);
+                        }
                         Err(e) => eprintln!("eink-serve: {e}"),
                     }
                 }
@@ -88,13 +103,20 @@ fn main() {
         std::thread::sleep(Duration::from_millis(every));
         match capture(&mut browser.lock().unwrap(), panel) {
             Ok(f) => {
-                if std::env::var_os("EINK_DEBUG").is_some() {
-                    let (rects, area) = screen.damage_to(&f);
-                    if rects > 0 {
-                        eprintln!("eink-serve: {rects} rects, {area} px changed");
-                    }
+                let (rects, area) = screen.damage_to(&f);
+                if rects == 0 {
+                    continue;
                 }
-                screen.show(f)
+                let slot = slot_of(now_ms());
+                // a big change (a new screen) goes out now; a tick-sized one waits for the next slot of the wall clock
+                let send = area > SMALL_CHANGE || slot != last_slot.load(Ordering::Relaxed);
+                if std::env::var_os("EINK_DEBUG").is_some() {
+                    eprintln!("eink-serve: {rects} rects, {area} px changed, {}", if send { "sent" } else { "held" });
+                }
+                if send {
+                    screen.show(f);
+                    last_slot.store(slot, Ordering::Relaxed);
+                }
             }
             Err(e) => eprintln!("eink-serve: {e}"),
         }

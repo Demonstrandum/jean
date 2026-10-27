@@ -55,13 +55,6 @@ def big_change(timeout=6.0):
 
 
 request(0); update()            # the first full frame
-while True:                      # settle: wait for a quiet second
-    request(1)
-    n, area = update()
-    if area < 20_000:
-        break
-
-
 def tap(label, fx, fy):
     pointer(1, fx, fy); time.sleep(0.05); pointer(0, fx, fy)
     t = big_change()
