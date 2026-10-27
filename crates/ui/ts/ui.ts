@@ -1772,7 +1772,8 @@ function drawFrame(): void {
     });
     if (frameOpts.clock) {
       // a small clock beside the tabs: the hours and the minutes, each a two-digit box glyph (two cells on a diagonal), a small space between
-      const now = new Date(), c = 6.4, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 1.6, gapx = 6;
+      // each glyph is two cells: 2 x 5.75 = 11.5 px square, the same size as a tab's character, centred in the same 15 px band, with the tabs' rhythm between them
+      const now = new Date(), c = 5.75, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 2.75, gapx = 6.5;
       const hh = boxNumberPath(digitsOf(now.getHours(), 2), { cell: c, x: gx, y: gy }), mm = boxNumberPath(digitsOf(now.getMinutes(), 2), { cell: c, x: gx + hh.w + gapx, y: gy });
       marks += `<path d="${hh.d}${mm.d}" stroke-width="1.1" stroke-linecap="square"/>`;
     }
