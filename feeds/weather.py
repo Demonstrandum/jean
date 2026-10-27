@@ -2,8 +2,8 @@
 """Weather, sun, moon and air quality from Open-Meteo (free, no key), every 10 min, for the lat/lon in config.json.
 Writes the typed keys in crates/ui/ts/schema.ts (K.wx.*, K.sun.*, K.moon.*, K.air.*): instants are epoch ms, categories are the
 enums in _schema.py (generated from that schema), amounts are numbers. No text is produced for the display to parse."""
-import datetime, math, zoneinfo
-from _lib import config, get_json, put, forever, log
+import datetime, json, math, os, time, zoneinfo
+from _lib import ROOT, config, get_json, put, forever, log
 from _schema import Sky, Pollutant
 
 # WMO weather code -> Sky
@@ -32,6 +32,30 @@ def sun_times(lat, lon, day):
     return base + datetime.timedelta(minutes=720 - 4 * (lon + ha) - eqtime), base + datetime.timedelta(minutes=720 - 4 * (lon - ha) - eqtime)
 
 
+CACHE = os.path.join(ROOT, "data", "weather-cache.json")
+
+
+def remember(d):
+    """Keep the last good reading on disk: after a restart, or while the API refuses us (a 429 lasts until its quota resets), the display shows it."""
+    try:
+        os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+        with open(CACHE, "w") as f:
+            json.dump({"at": time.time(), "d": d}, f)
+    except OSError as e:
+        log("cannot keep the weather:", e)
+
+
+def recall(max_age=12 * 3600):
+    try:
+        with open(CACHE) as f:
+            c = json.load(f)
+        if time.time() - c["at"] <= max_age:
+            return c["d"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
 def ms(dt):
     return int(dt.timestamp() * 1000)
 
@@ -55,7 +79,13 @@ def step():
     url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&timezone=%s&forecast_days=2&wind_speed_unit=mph"
            "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,pressure_msl,cloud_cover"
            "&hourly=temperature_2m,precipitation_probability,uv_index&daily=sunrise,sunset,uv_index_max") % (lat, lon, tzname.replace("/", "%2F"))
-    j = get_json(url)
+    try:
+        j = get_json(url)
+    except Exception:
+        cached = recall()
+        if cached:
+            put(cached)                                              # stale beats blank
+        raise
     cur = j["current"]
     at = lambda iso: datetime.datetime.fromisoformat(iso).replace(tzinfo=tz)      # the API sends local times without an offset
     now = at(cur["time"])
@@ -68,7 +98,7 @@ def step():
     rain_from = next((h["at"] for i, h in enumerate(hours) if i > 0 and h["rain"] >= 50), None)
     uvs = j["hourly"]["uv_index"]
     ph = moon_phase()
-    put({
+    out = ({
         "wx.temp": round(cur["temperature_2m"], 1), "wx.feels": round(cur["apparent_temperature"], 1), "wx.sky": WMO.get(cur["weather_code"], Sky.Cloudy),
         "wx.wind": round(cur["wind_speed_10m"]), "wx.wind_dir": cur["wind_direction_10m"], "wx.cloud": round(cur["cloud_cover"] / 12.5), "wx.pressure": round(cur["pressure_msl"]),
         "wx.hours": hours, "wx.rain_from": rain_from,
@@ -76,6 +106,8 @@ def step():
         "sun.rise": ms(at(j["daily"]["sunrise"][0])), "sun.set": ms(at(j["daily"]["sunset"][0])),
         "moon.phase": round(ph, 3),
     })
+    put(out)
+    remember(out)
     try:
         air(lat, lon, tzname)
     except Exception as e:                  # the weather above is already out; air quality is a separate service
@@ -83,4 +115,4 @@ def step():
 
 
 if __name__ == "__main__":
-    forever(600, step, retry=60)
+    forever(600, step, retry=900)

@@ -23,9 +23,22 @@ pub fn atkinson(gray: &[u8], w: usize, h: usize) -> crate::Frame {
     crate::Frame { w, h, px: lum.iter().map(|&v| if v < 128.0 { 0 } else { 255 }).collect() }
 }
 
-/// Gray to 16 levels (0x00, 0x11 ... 0xFF), nothing else: the same input always gives the same pixel, so a repaint of unchanged content changes nothing.
+/// Gray to the panel's 16 levels (0x00, 0x11 ... 0xFF), dithered *between* those levels so a gradient stays smooth instead of banding. The threshold for a
+/// pixel is noise that depends only on its position (interleaved gradient noise), so a pixel's result is a pure function of its own gray value and place:
+/// nothing spreads to neighbours, nothing is re-rolled when something elsewhere changes, and a repaint of unchanged content changes not one pixel.
+/// Pure black and pure white always stay themselves, so text and rules are untouched.
 pub fn levels16(gray: &[u8], w: usize, h: usize) -> crate::Frame {
-    crate::Frame { w, h, px: gray.iter().map(|&v| (v & 0xF0) | (v >> 4)).collect() }
+    let px = gray
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let (x, y) = ((i % w) as f32, (i / w) as f32);
+            let t = (52.982_92 * ((0.067_110_56 * x + 0.005_837_15 * y).fract())).fract();
+            let level = ((v as f32 / 17.0) + t).floor().min(15.0) as u8;
+            level * 17
+        })
+        .collect();
+    crate::Frame { w, h, px }
 }
 
 /// Atkinson in independent 64x64 blocks. Error diffusion over a whole frame makes one changed pixel re-roll every dot after it, so a ticking
@@ -72,9 +85,28 @@ mod tests {
     }
 
     #[test]
-    fn sixteen_levels_keep_black_and_white_and_quantise_the_rest() {
-        let f = levels16(&[0, 255, 128, 17], 4, 1);
-        assert_eq!(f.px, vec![0x00, 0xFF, 0x88, 0x11]);
+    fn sixteen_levels_keep_black_and_white_and_dither_between_the_rest() {
+        let f = levels16(&[0, 255, 0, 255], 4, 1);
+        assert_eq!(f.px, vec![0, 255, 0, 255]);
+        // a flat patch of a level between two of the panel's: only those two neighbours appear, in about the right proportion
+        let (w, h) = (128, 128);
+        let g = levels16(&vec![136u8; w * h], w, h); // 136 = 8.0 levels: exactly level 8 (0x88)
+        assert!(g.px.iter().all(|&p| p == 0x88));
+        let g = levels16(&vec![144u8; w * h], w, h); // 144 / 17 = 8.47: between 0x88 and 0x99
+        assert!(g.px.iter().all(|&p| p == 0x88 || p == 0x99));
+        let mean = g.px.iter().map(|&p| p as f64).sum::<f64>() / g.px.len() as f64;
+        assert!((mean - 144.0).abs() < 2.0, "the dither keeps the average: {mean}");
+    }
+
+    #[test]
+    fn a_pixel_depends_only_on_its_own_value_and_place() {
+        let (w, h) = (64, 64);
+        let mut gray: Vec<u8> = (0..w * h).map(|i| ((i % w) * 255 / w) as u8).collect();
+        let before = levels16(&gray, w, h);
+        gray[30 * w + 30] = 255;
+        let after = levels16(&gray, w, h);
+        let differing: Vec<usize> = (0..w * h).filter(|&i| before.px[i] != after.px[i]).collect();
+        assert_eq!(differing, vec![30 * w + 30]);
     }
 
     #[test]

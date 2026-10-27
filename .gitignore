@@ -8,3 +8,4 @@ __pycache__/
 /feeds/.logs/
 # the licensed font is committed only as berkeley.woff2.age; never the plaintext
 /crates/ui/fonts/berkeley.woff2
+/data/weather-cache.json
