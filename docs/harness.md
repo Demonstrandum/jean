@@ -37,7 +37,7 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 
 - Voice with a real microphone, whisper.cpp and Piper: the code and adapters are tested with fakes; no whisper or Piper is installed on this machine.
 - The NixOS configuration evaluates (with the assistant and panel on), but it has not been built or booted: there is no Linux builder here, so the VM and the `checks.vm` test have not run.
-- The reMarkable itself: the VNC stream is tested with a hand-written client, not with the tablet's viewer. Remote-desktop latency and the tablet's refresh behaviour are unknown.
+- The reMarkable: it shows the display and the touch relay is tested end to end up to the tablet's log (see below). Whether the panel still flashes the gradients on each tick, whether touches feel immediate on the glass, and the effect of `JEAN_REFRESH` have been judged by eye only by the owner, not measured.
 - Home Assistant: the translation is tested; no instance was reachable.
 - The builder promoting a change automatically (`JEAN_APPROVAL=auto`) has only run against fakes; the live test stops at "needs approval".
 - Sensors beyond Home Assistant (GPIO, I²C) are not written.
