@@ -1723,7 +1723,28 @@ function go(id: string, o: { hold?: number } = {}): boolean {
 }
 
 
-let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean } | null = null, frameHooked = false;
+let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; beat?: boolean } | null = null, frameHooked = false;
+
+/**
+ * The master clock as three hairlines, the way the scheduler counts: the slow slot of the hour (5 min), the beat inside it (30 s), the tick
+ * inside that (1 s). A notch marks where each one is. Positions are the scheduler's own slots (floor(now / period)), so what you read ran.
+ */
+function beatRuler(x: number, wid: number, now: number): string {
+  const f = (n: number) => n.toFixed(2);
+  const [slow, beat, tick] = [cadence[Tier.Slow], cadence[Tier.Beat], cadence[Tier.Tick]];
+  const rows = [
+    { n: Math.max(1, Math.round(3_600_000 / slow)), i: Math.floor(now / slow) },
+    { n: Math.max(1, Math.round(slow / beat)), i: Math.floor(now / beat) },
+    { n: Math.max(1, Math.round(beat / tick)), i: Math.floor(now / tick) },
+  ];
+  let lines = "", notches = "";
+  rows.forEach((row, r) => {
+    const y = 4.5 + r * 3.5, cw = wid / row.n, cur = row.i % row.n;
+    lines += `M${f(x)} ${f(y)}h${f(wid)}`;
+    notches += `<rect x="${f(x + cur * cw)}" y="${f(y - 1.25)}" width="${f(Math.max(1.2, cw))}" height="2.5"/>`;
+  });
+  return `<path d="${lines}" stroke-width="0.5"/><g fill="currentColor" stroke="none">${notches}</g>`;
+}
 
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
 function drawFrame(): void {
@@ -1776,6 +1797,11 @@ function drawFrame(): void {
       const now = new Date(), c = 5.75, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 2.75, gapx = 6.5;
       const hh = boxNumberPath(digitsOf(now.getHours(), 2), { cell: c, x: gx, y: gy }), mm = boxNumberPath(digitsOf(now.getMinutes(), 2), { cell: c, x: gx + hh.w + gapx, y: gy });
       marks += `<path d="${hh.d}${mm.d}" stroke-width="1.1" stroke-linecap="square"/>`;
+      if (frameOpts.beat) {
+        // the beat ruler fills the gap between the clock and the right sigils; if the sigils leave no room it is simply not drawn
+        const from = gx + hh.w + gapx + mm.w + 12, n = items(frameOpts.tr).length, to = w - 26 - (n ? n * sz + (n - 1) * gap : 0) - 14;
+        if (to - from >= 30) marks += beatRuler(from, Math.min(44, to - from), Date.now());
+      }
     }
   } else {
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
@@ -1794,9 +1820,10 @@ function drawFrame(): void {
  * column letters (A-F) and row numbers (1-3) matching the tilegrid so every module has an address like "B2",
  * and a terse title block. ui.frame({title, sheet, tl, tr}) turns it on, ui.frame(false) off.
  */
-function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean } = true): void {
+function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; beat?: boolean } = true): void {
   frameOpts = opt === false ? null : typeof opt === "object" ? opt : {};
   root.style.paddingBottom = frameOpts?.tabs ? "14px" : "";   // the tabs live in the top margin: the sheet gets the bottom one back
+  if (frameOpts?.beat) every("ui.frame.beat", Tier.Tick, drawFrame); else stop("ui.frame.beat");   // the ruler moves every second
   drawFrame();
   if (!frameHooked) {
     frameHooked = true;

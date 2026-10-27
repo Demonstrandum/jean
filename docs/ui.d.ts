@@ -289,12 +289,15 @@ declare function defineScreen(spec: ScreenSpec): ScreenHandle;
 declare function screenHandle(id: string): ScreenHandle;
 /** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
 declare function go(id: string, o?: { hold?: number }): boolean;
+/** The master clock as three hairlines, the way the scheduler counts: the slow slot of the hour (5 min), the beat inside it (30 s), the tick
+ * inside that (1 s). A notch marks where each one is. Positions are the scheduler's own slots (floor(now / period)), so what you read ran. */
+declare function beatRuler(x: number, wid: number, now: number): string;
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
 declare function drawFrame(): void;
 /** The drawing-sheet frame, in the screen margin: registration targets, two corner clusters of sigils (tl, tr),
  * column letters (A-F) and row numbers (1-3) matching the tilegrid so every module has an address like "B2",
  * and a terse title block. ui.frame({title, sheet, tl, tr}) turns it on, ui.frame(false) off. */
-declare function frame(opt?: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean }): void;
+declare function frame(opt?: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; beat?: boolean }): void;
 /** Run fn now and every `ms` while `el` stays mounted (stops once removed). */
 declare function live<T extends Element>(el: T, fn: (el: T) => void, ms: number): T;
 declare function setText(el: Element, t: string): any;
