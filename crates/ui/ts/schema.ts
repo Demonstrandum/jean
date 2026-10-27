@@ -65,12 +65,14 @@
   const wave = (n: number, base: number, amp: number, seed = 0) => Array.from({ length: n }, (_, i) => +(base + amp * Math.sin(i / 2.3 + seed)).toFixed(2));
   const hours: Hour[] = Array.from({ length: 24 }, (_, i) => ({ at: hourStart + i * H, temp: +(14 + 3 * Math.sin(i / 4)).toFixed(1), rain: Math.max(0, Math.round(60 * Math.sin(i / 5))), uv: 0 }));
   const uvDay = Array.from({ length: 24 }, (_, i) => +Math.max(0, 5 * Math.sin(((i - 6) / 12) * Math.PI)).toFixed(1));
+  // relative to now, so the fixtures exercise "an event is on now" and "events later" at any time of day (not only the daytime)
   const events: CalEvent[] = [
-    { id: "a", title: "Standup", start: midnight + 9.5 * H, end: midnight + 10 * H, allDay: false },
-    { id: "b", title: "Lunch", start: midnight + 13 * H, end: midnight + 14 * H, allDay: false },
-    { id: "c", title: "Parcel pickup", start: midnight + 17.75 * H, end: midnight + 18 * H, allDay: false },
+    { id: "a", title: "Standup", start: now - 0.5 * H, end: now + 0.5 * H, allDay: false },
+    { id: "b", title: "Lunch", start: now + 1.5 * H, end: now + 2.5 * H, allDay: false },
+    { id: "c", title: "Parcel pickup", start: now + 2 * H, end: now + 2.25 * H, allDay: false },
     { id: "d", title: "Review", start: midnight + 38 * H, end: midnight + 39.5 * H, allDay: false },
   ];
+
   const intensity: Intensity[] = Array.from({ length: 48 }, (_, i) => ({ at: midnight + i * 1_800_000, grams: Math.round(60 + 35 * Math.sin(i / 8)) }));
 
   // ---------------------------------------------------------------- the keys

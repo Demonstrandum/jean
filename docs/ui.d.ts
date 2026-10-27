@@ -229,9 +229,9 @@ type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark
 declare function boxDigitPath(digit: number, w?: any, h?: any, x?: any, y?: any): string;
 /** The decimal digits of a non-negative whole number, most significant first (padded with zeros to `width` digits). */
 declare function digitsOf(n: number, width?: any): number[];
-/** A number as box digits in a row, `height` px tall (each digit a little narrower than tall), `width` digits at least. */
+/** A number as box digits in a row, each digit a square `height` px tall, `width` digits at least. */
 declare function boxNumeral(n: number, o?: { height?: number; width?: number }): HTMLElement;
-/** A time as box digits, HH:MM (two dots between): `at` is epoch ms, default now. */
+/** A time as box digits, HHMM with a small space between hours and minutes (no colon): `at` is epoch ms, default now. */
 declare function boxClock(at?: number, o?: { height?: number }): HTMLElement;
 /** A sigil's meaning for a state mark. */
 declare enum State { Ok = 0, Idle = 1, Warn = 2, Err = 3, Unknown = 4 }

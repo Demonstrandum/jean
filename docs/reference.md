@@ -921,7 +921,7 @@ The decimal digits of a non-negative whole number, most significant first (padde
 boxNumeral(n: number, o: { height?: number; width?: number } = {}): HTMLElement
 ```
 
-A number as box digits in a row, `height` px tall (each digit a little narrower than tall), `width` digits at least.
+A number as box digits in a row, each digit a square `height` px tall, `width` digits at least.
 
 ### `boxClock`
 
@@ -929,7 +929,7 @@ A number as box digits in a row, `height` px tall (each digit a little narrower 
 boxClock(at: number = Date.now(), o: { height?: number } = {}): HTMLElement
 ```
 
-A time as box digits, HH:MM (two dots between): `at` is epoch ms, default now.
+A time as box digits, HHMM with a small space between hours and minutes (no colon): `at` is epoch ms, default now.
 
 ### `sig.state`
 

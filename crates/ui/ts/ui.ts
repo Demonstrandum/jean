@@ -1149,7 +1149,7 @@ const routes = (o: { from: number | string; to: number | string; now?: number | 
     if ((m / 60) % 2 === 0) g += `<text x="${X(m).toFixed(1)}" y="${H - 6}" text-anchor="middle" ${mono} fill="currentColor" stroke="none">${String(m / 60).padStart(2, "0")}</text>`;
   if (o.now) {
     const nx = X(toMinutes(o.now));
-    g += `<path d="M${nx.toFixed(1)} ${top - 8}V${H - 20}" stroke-width="2" stroke-dasharray="3 3"/><rect x="${(nx - 32).toFixed(1)}" y="0" width="64" height="13" fill="currentColor" stroke="none"/><text x="${nx.toFixed(1)}" y="10" text-anchor="middle" ${mono} fill="#fff" stroke="none">NOW ${escHtml(o.now)}</text>`;
+    g += `<path d="M${nx.toFixed(1)} ${top - 8}V${H - 20}" stroke-width="2" stroke-dasharray="3 3"/><rect x="${(nx - 32).toFixed(1)}" y="0" width="64" height="13" fill="currentColor" stroke="none"/><text x="${nx.toFixed(1)}" y="10" text-anchor="middle" ${mono} fill="#fff" stroke="none">NOW ${hhmm(toMinutes(o.now))}</text>`;
   }
   const el = h("div", { class: "routes" });
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" fill="none" stroke="currentColor">${g}</svg>`;
@@ -1500,17 +1500,17 @@ const boxDigitPath = (digit: number, w = 1, h = 1, x = 0, y = 0): string =>
   (BOX_SIDES[Math.max(0, Math.min(9, Math.trunc(digit)))] ?? []).map((side) => { const [x1, y1, x2, y2] = BOX_STROKES[side]; return `M${(x + x1 * w).toFixed(2)} ${(y + y1 * h).toFixed(2)}L${(x + x2 * w).toFixed(2)} ${(y + y2 * h).toFixed(2)}`; }).join("");
 /** The decimal digits of a non-negative whole number, most significant first (padded with zeros to `width` digits). */
 const digitsOf = (n: number, width = 1): number[] => String(Math.max(0, Math.trunc(n))).padStart(width, "0").split("").map(Number);
-/** A number as box digits in a row, `height` px tall (each digit a little narrower than tall), `width` digits at least. */
+/** A number as box digits in a row, each digit a square `height` px tall, `width` digits at least. */
 const boxNumeral = (n: number, o: { height?: number; width?: number } = {}): HTMLElement => {
-  const hgt = o.height ?? 14, ds = digitsOf(n, o.width ?? 1), cw = 0.72, gap = 0.45, wUnits = ds.length * cw + (ds.length - 1) * gap;
+  const hgt = o.height ?? 14, ds = digitsOf(n, o.width ?? 1), cw = 1, gap = 0.4, wUnits = ds.length * cw + (ds.length - 1) * gap;
   const el = h("span", { class: "icon box", title: String(n) });
   el.innerHTML = `<svg viewBox="-0.15 -0.15 ${(wUnits + 0.3).toFixed(2)} 1.3" width="${((hgt * (wUnits + 0.3)) / 1.3).toFixed(1)}" height="${hgt}" fill="none" stroke="currentColor" stroke-width="0.09" stroke-linecap="square">${ds.map((d, i) => `<path d="${boxDigitPath(d, cw, 1, i * (cw + gap), 0)}"/>`).join("")}</svg>`;
   return el;
 };
-/** A time as box digits, HH:MM (two dots between): `at` is epoch ms, default now. */
+/** A time as box digits, HHMM with a small space between hours and minutes (no colon): `at` is epoch ms, default now. */
 const boxClock = (at: number = Date.now(), o: { height?: number } = {}): HTMLElement => {
   const d = new Date(at);
-  return h("span", { class: "boxclock" }, boxNumeral(d.getHours(), { ...o, width: 2 }), ":", boxNumeral(d.getMinutes(), { ...o, width: 2 }));
+  return h("span", { class: "boxclock", style: "display:inline-flex;gap:0.4em" }, boxNumeral(d.getHours(), { ...o, width: 2 }), boxNumeral(d.getMinutes(), { ...o, width: 2 }));
 };
 
 // ------------------------------------------------ typed marks: sigils without strings
@@ -1744,12 +1744,11 @@ function drawFrame(): void {
       marks += `<text x="${f(x + cell / 2)}" y="${f(y + 11.4)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font:${on ? 400 : 300} 11.5px var(--sans)">${escHtml(sc.tab)}</text>`;
     });
     if (frameOpts.clock) {
-      // a small clock beside the tabs: HH:MM as box digits (a square with sides left out), a colon of two dots between the pairs
-      const now = new Date(), ch = 11, cw = 7.2, gap = 2.4, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 2.5;
+      // a small clock beside the tabs: HHMM as box digits (a square with sides left out), a small space between hours and minutes
+      const now = new Date(), ch = 10, cw = 10, gap = 3, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 3;
       const digit = (dgt: number, x: number) => `<path d="${boxDigitPath(dgt, cw, ch, x, gy)}" stroke-width="1.2" stroke-linecap="square"/>`;
       const hh = digitsOf(now.getHours(), 2), mm = digitsOf(now.getMinutes(), 2), pair = 2 * cw + gap, colon = 6;
-      marks += digit(hh[0], gx) + digit(hh[1], gx + cw + gap) + digit(mm[0], gx + pair + colon) + digit(mm[1], gx + pair + colon + cw + gap)
-        + `<path d="M${f(gx + pair + colon / 2 - 0.5)} ${f(gy + 3.2)}h0.01M${f(gx + pair + colon / 2 - 0.5)} ${f(gy + 7.8)}h0.01" stroke-width="1.8" stroke-linecap="square"/>`;
+      marks += digit(hh[0], gx) + digit(hh[1], gx + cw + gap) + digit(mm[0], gx + pair + colon) + digit(mm[1], gx + pair + colon + cw + gap);
     }
   } else {
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
