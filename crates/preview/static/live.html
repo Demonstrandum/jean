@@ -3,6 +3,10 @@
 <title>display (live)</title>
 <style>
   html, body { margin: 0; }
+  /* ?panel: the scene alone at 1:1 in the corner, for a screenshot to be sent to a panel */
+  .panel body { padding: 0; background: #fff; display: block; }
+  .panel #bar { display: none; }
+  .panel #screen { box-shadow: none; }
   body { background: #c8c8c8; display: flex; justify-content: center; padding: 20px 0 56px; font: 14px system-ui, sans-serif; }
   #stage { position: relative; }
   #scaler { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
@@ -24,12 +28,13 @@
   // Nothing is built here. The scene exists only because the store replays its journal into
   // this page, and every later change arrives through /poll, one verified eval at a time.
   const sp = new URLSearchParams(location.search);
+  if (sp.has("panel")) document.documentElement.classList.add("panel");
   if (sp.has("eink")) ui.eink({ algo: sp.get("eink") || "atkinson" });
 
   const stage = document.getElementById("stage"), scaler = document.getElementById("scaler");
   function fit() {
     const W = ui.screen.offsetWidth, H = ui.screen.offsetHeight;
-    const s = Math.min((innerWidth - 60) / W, (innerHeight - 100) / H);
+    const s = sp.has("panel") ? 1 : Math.min((innerWidth - 60) / W, (innerHeight - 100) / H);
     scaler.style.transform = `scale(${s})`;
     stage.style.width = W * s + "px";
     stage.style.height = H * s + "px";
