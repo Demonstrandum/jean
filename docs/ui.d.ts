@@ -225,14 +225,26 @@ declare function band(edge: "top" | "bottom" | "mid", ...a: Arg[]): any;
 declare function giant(value: Child, o?: { size?: number; unit?: string }): any;
 /** Sigils for a corner cluster: sig.* values (or the legacy [kind, value] pairs), or a function returning them (re-read at every redraw). */
 type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark | [SigKind, any?])[]);
-/** SVG path data of one digit 0..9, in a box `w` wide and `h` tall at (x, y): the unit square by default. */
-declare function boxDigitPath(digit: number, w?: any, h?: any, x?: any, y?: any): string;
-/** The decimal digits of a non-negative whole number, most significant first (padded with zeros to `width` digits). */
+/** The five operators. */
+declare enum BoxOp { Minus = 0, Plus = 1, Divide = 2, Times = 3, Equals = 4 }
+/** Which way a number's zigzag runs: across the page (default) or down it. */
+declare enum BoxLayout { Horizontal = 0, Vertical = 1 }
+type BoxSegment = readonly [number, number, number, number];
+/** Where cell `i` of a number's zigzag sits, in cells: across, i down every other one; or the transpose. */
+declare function boxCell(i: number, layout?: BoxLayout): { x: number; y: number };
+/** The decimal digits of a non-negative whole number, most significant first (zero-padded to `width` digits). */
 declare function digitsOf(n: number, width?: any): number[];
-/** A number as box digits in a row, each digit a square `height` px tall, `width` digits at least. */
-declare function boxNumeral(n: number, o?: { height?: number; width?: number }): HTMLElement;
-/** A time as box digits, HHMM with a small space between hours and minutes (no colon): `at` is epoch ms, default now. */
-declare function boxClock(at?: number, o?: { height?: number }): HTMLElement;
+declare function strokesPath(segs: readonly BoxSegment[], cell: number, ox: number, oy: number): string;
+/** One digit 0..9 as path data in a cell of `cell` units at (x, y). */
+declare function boxDigitPath(digit: number, cell?: any, x?: any, y?: any): string;
+/** A number's glyph: path data for its digits on the zigzag, and the box it fills (in the same units, `cell` per cell). */
+declare function boxNumberPath(digits: readonly number[], o?: { cell?: number; layout?: BoxLayout; x?: number; y?: number }): { d: string; w: number; h: number };
+/** A whole number as one glyph, `cell` px per cell (default 8). */
+declare function boxNumber(n: number, o?: { cell?: number; layout?: BoxLayout; width?: number }): HTMLElement;
+/** An expression as a straight row: numbers (each its own zigzag glyph) and operators, e.g. boxExpression([82, BoxOp.Plus, 85, BoxOp.Equals, 167]). */
+declare function boxExpression(items: readonly (number | BoxOp)[], o?: { cell?: number; gap?: number }): HTMLElement;
+/** A time: the hours and the minutes, each a two-digit glyph (a two-cell diagonal), with a small space between; `at` is epoch ms (default now). */
+declare function boxClock(at?: number, o?: { cell?: number }): HTMLElement;
 /** A sigil's meaning for a state mark. */
 declare enum State { Ok = 0, Idle = 1, Warn = 2, Err = 3, Unknown = 4 }
 /** A sigil's meaning for a trend mark: slow arrows (Up/Down/Flat) and steep ones (Rise/Fall). */
@@ -566,6 +578,7 @@ glyph(name: IconName): SigMark;
 };
 declare const prims: Record<string, (...a: Arg[]) => HTMLElement>;
 declare const iconBoxes: Record<string, [number, number, number, number]>;
+declare const BOX_OPS: Readonly<Record<BoxOp, readonly BoxSegment[]>>;
 declare const STATE_WIRE: Record<State, string>;
 declare const TREND_WIRE: Record<Trend, string>;
 declare const Z: Record<CellName, Cell>;

@@ -899,13 +899,13 @@ giant(value: Child, o: { size?: number; unit?: string } = {})
 An oversized numeral (default 240px). Put it in a tile with {bleed: true}: it sits on the module's
 floor and the module's edge crops it, on purpose. Keep the real value in the label or count.
 
-### `boxDigitPath`
+### `boxCell`
 
 ```ts
-boxDigitPath(digit: number, w = 1, h = 1, x = 0, y = 0): string
+boxCell(i: number, layout: BoxLayout = BoxLayout.Horizontal): { x: number; y: number }
 ```
 
-SVG path data of one digit 0..9, in a box `w` wide and `h` tall at (x, y): the unit square by default.
+Where cell `i` of a number's zigzag sits, in cells: across, i down every other one; or the transpose.
 
 ### `digitsOf`
 
@@ -913,23 +913,53 @@ SVG path data of one digit 0..9, in a box `w` wide and `h` tall at (x, y): the u
 digitsOf(n: number, width = 1): number[]
 ```
 
-The decimal digits of a non-negative whole number, most significant first (padded with zeros to `width` digits).
+The decimal digits of a non-negative whole number, most significant first (zero-padded to `width` digits).
 
-### `boxNumeral`
+### `strokesPath`
 
 ```ts
-boxNumeral(n: number, o: { height?: number; width?: number } = {}): HTMLElement
+strokesPath(segs: readonly BoxSegment[], cell: number, ox: number, oy: number): string
 ```
 
-A number as box digits in a row, each digit a square `height` px tall, `width` digits at least.
+### `boxDigitPath`
+
+```ts
+boxDigitPath(digit: number, cell = 1, x = 0, y = 0): string
+```
+
+One digit 0..9 as path data in a cell of `cell` units at (x, y).
+
+### `boxNumberPath`
+
+```ts
+boxNumberPath(digits: readonly number[], o: { cell?: number; layout?: BoxLayout; x?: number; y?: number } = {}): { d: string; w: number; h: number }
+```
+
+A number's glyph: path data for its digits on the zigzag, and the box it fills (in the same units, `cell` per cell).
+
+### `boxNumber`
+
+```ts
+boxNumber(n: number, o: { cell?: number; layout?: BoxLayout; width?: number } = {}): HTMLElement
+```
+
+A whole number as one glyph, `cell` px per cell (default 8).
+
+### `boxExpression`
+
+```ts
+boxExpression(items: readonly (number | BoxOp)[], o: { cell?: number; gap?: number } = {}): HTMLElement
+```
+
+An expression as a straight row: numbers (each its own zigzag glyph) and operators, e.g. boxExpression([82, BoxOp.Plus, 85, BoxOp.Equals, 167]).
 
 ### `boxClock`
 
 ```ts
-boxClock(at: number = Date.now(), o: { height?: number } = {}): HTMLElement
+boxClock(at: number = Date.now(), o: { cell?: number } = {}): HTMLElement
 ```
 
-A time as box digits, HHMM with a small space between hours and minutes (no colon): `at` is epoch ms, default now.
+A time: the hours and the minutes, each a two-digit glyph (a two-cell diagonal), with a small space between; `at` is epoch ms (default now).
 
 ### `sig.state`
 
@@ -1865,13 +1895,13 @@ icon("sun") ... a named icon (size defaults to the surrounding font size). Unkno
 GLYPHS: Record<string, string[]>
 ```
 
-### `BOX_SIDES`
+### `BOX_OPS`
 
 ```ts
-BOX_SIDES: Readonly<Record<number, readonly ("top" | "right" | "bottom" | "left" | "centre")[]>>
+BOX_OPS: Readonly<Record<BoxOp, readonly BoxSegment[]>>
 ```
 
-The sides of the unit square a digit draws: top, right, bottom, left, and the centre stroke.
+The strokes of each operator, in cell coordinates (a stroke may run past the cell: + and = are wider than a digit).
 
 ### `STATE_WIRE`
 
@@ -2080,6 +2110,37 @@ type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark
 ```
 
 Sigils for a corner cluster: sig.* values (or the legacy [kind, value] pairs), or a function returning them (re-read at every redraw).
+
+### `BoxOp`
+
+```ts
+enum BoxOp
+```
+
+The five operators.
+
+- `Minus = 0`
+- `Plus = 1`
+- `Divide = 2`
+- `Times = 3`
+- `Equals = 4`
+
+### `BoxLayout`
+
+```ts
+enum BoxLayout
+```
+
+Which way a number's zigzag runs: across the page (default) or down it.
+
+- `Horizontal = 0`
+- `Vertical = 1`
+
+### `BoxSegment`
+
+```ts
+type BoxSegment = readonly [number, number, number, number]
+```
 
 ### `State`
 

@@ -150,7 +150,7 @@
     },
     // Every icon (fitted to one live area), the sigils, and the weather symbols.
     icons() {
-      ui.size(800, 900);
+      ui.size(800, 1100);
       ui.show(
         topbar("Icons", `${ui.icons().length} + weather`),
         div({ style: "display:grid;grid-template-columns:repeat(9,1fr);gap:12px 6px" },
@@ -164,8 +164,12 @@
           ["count", 1], ["count", 3], ["count", 5], ["count", 6], ["count", 9], ["dir", 0], ["dir", 90], ["dir", 220], ["bars", 1], ["bars", 4],
         ].map(([k, v]) => col({ class: "center" }, sigil(k, v, 26), small(`${k} ${Array.isArray(v) ? v.join("/") : v}`)))),
         divider(),
-        // box numerals: ten digits, each a small square with some sides left out
-        row({ class: "fit" }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1982, 2359].map((n) => col({ class: "center" }, boxNumeral(n, { height: 30 }), small(String(n)))).concat([col({ class: "center" }, boxClock(Date.now(), { height: 30 }), small("now"))])));
+        // box numerals: digits are squares with sides left out; a number is ONE glyph on a zigzag; an equation is a straight row
+        row({ class: "fit" }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => col({ class: "center" }, boxNumber(n, { cell: 14 }), small(String(n))))),
+        row({ class: "fit" }, [10, 17, 25, 38, 42, 59, 60, 76, 83, 99].map((n) => col({ class: "center" }, boxNumber(n, { cell: 14 }), small(String(n))))),
+        row({ class: "fit" }, [100, 500, 900, 1000, 1982, 9000, 183004829].map((n) => col({ class: "center" }, boxNumber(n, { cell: 9 }), small(String(n)))).concat([col({ class: "center" }, boxNumber(100000000, { cell: 8, layout: BoxLayout.Vertical }), small("vertical"))])),
+        row({ class: "fit", style: "gap:26px" }, [[2, BoxOp.Plus, 2, BoxOp.Equals, 4], [4, BoxOp.Plus, 4, BoxOp.Equals, 8], [82, BoxOp.Plus, 85, BoxOp.Equals, 167], [9, BoxOp.Minus, 3, BoxOp.Times, 2, BoxOp.Divide, 6]].map((e) => col({ class: "center" }, boxExpression(e, { cell: 12 })))),
+        row({ class: "fit" }, [col({ class: "center" }, boxClock(Date.now(), { cell: 14 }), small("now"))]));
     },
   };
 

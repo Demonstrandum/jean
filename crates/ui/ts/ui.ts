@@ -1477,40 +1477,67 @@ const giant = (value: Child, o: { size?: number; unit?: string } = {}) =>
 /** Sigils for a corner cluster: sig.* values (or the legacy [kind, value] pairs), or a function returning them (re-read at every redraw). */
 type SigList = readonly (SigMark | [SigKind, any?])[] | (() => readonly (SigMark | [SigKind, any?])[]);
 // ------------------------------------------------ box numerals
-// Ten digits, each a small square drawn with some of its sides left out: 0 is the whole square, 1 a U (open top), 2 a C (open right), 3 an L,
-// 4 an upside-down U (open bottom), 5 the two verticals, 6 a corner (left and top), 7 one centre stroke, 8 a reversed C (open left), 9 the other
-// corner (right and bottom). Small, square and legible at a few pixels: good for a clock in a margin.
+// A numeral system drawn with squares. A cell is a unit square and a symbol is the sides it keeps: the ten digits (0 the whole square, 1 a U,
+// 2 a C, 3 an L, 4 an upside-down U, 5 the two verticals, 6 a corner, 7 one centre stroke, 8 a reversed C, 9 the other corner) and five operators.
+// A number is ONE glyph: its digits sit on a zigzag, the most significant top-left, the next down-right, the next back up, and so on, so
+// neighbours touch at corners: 42 is two cells on a diagonal, 1982 is four cells in a wave, 183004829 a chain of nine. An equation is a straight
+// row of cells: numbers (each a zigzag glyph) and operators. A vertical layout runs the same zigzag down the page.
 
-/** The sides of the unit square a digit draws: top, right, bottom, left, and the centre stroke. */
-const BOX_SIDES: Readonly<Record<number, readonly ("top" | "right" | "bottom" | "left" | "centre")[]>> = {
-  0: ["top", "right", "bottom", "left"],
-  1: ["left", "bottom", "right"],
-  2: ["top", "left", "bottom"],
-  3: ["left", "bottom"],
-  4: ["left", "top", "right"],
-  5: ["left", "right"],
-  6: ["left", "top"],
-  7: ["centre"],
-  8: ["top", "right", "bottom"],
-  9: ["right", "bottom"],
+/** The five operators. */
+enum BoxOp { Minus, Plus, Divide, Times, Equals }
+/** Which way a number's zigzag runs: across the page (default) or down it. */
+enum BoxLayout { Horizontal, Vertical }
+
+type BoxSegment = readonly [number, number, number, number];
+const BOX_SIDES: Readonly<Record<number, readonly BoxSegment[]>> = (() => {
+  const T: BoxSegment = [0, 0, 1, 0], R: BoxSegment = [1, 0, 1, 1], B: BoxSegment = [0, 1, 1, 1], L: BoxSegment = [0, 0, 0, 1], M: BoxSegment = [0.5, 0, 0.5, 1];
+  return { 0: [T, R, B, L], 1: [L, B, R], 2: [T, L, B], 3: [L, B], 4: [L, T, R], 5: [L, R], 6: [L, T], 7: [M], 8: [T, R, B], 9: [R, B] };
+})();
+/** The strokes of each operator, in cell coordinates (a stroke may run past the cell: + and = are wider than a digit). */
+const BOX_OPS: Readonly<Record<BoxOp, readonly BoxSegment[]>> = {
+  [BoxOp.Minus]: [[0, 0.3, 1, 0.3], [0, 0.7, 1, 0.7], [0, 0.3, 0, 0.7], [1, 0.3, 1, 0.7]],
+  [BoxOp.Plus]: [[0, 0, 1.4, 0], [0, 0, 0, 0.6]],
+  [BoxOp.Divide]: [[0, 0, 0, 1], [0, 1, 1, 1], [1, 0, 1, 1], [0.5, 0.35, 0.5, 0.36]],
+  [BoxOp.Times]: [[0, 0.6, 1.4, 0.6], [1.4, 0, 1.4, 0.6]],
+  [BoxOp.Equals]: [[0, 0, 0, 1], [0, 1, 1.4, 1]],
 };
-const BOX_STROKES = { top: [0, 0, 1, 0], right: [1, 0, 1, 1], bottom: [0, 1, 1, 1], left: [0, 0, 0, 1], centre: [0.5, 0, 0.5, 1] } as const;
-/** SVG path data of one digit 0..9, in a box `w` wide and `h` tall at (x, y): the unit square by default. */
-const boxDigitPath = (digit: number, w = 1, h = 1, x = 0, y = 0): string =>
-  (BOX_SIDES[Math.max(0, Math.min(9, Math.trunc(digit)))] ?? []).map((side) => { const [x1, y1, x2, y2] = BOX_STROKES[side]; return `M${(x + x1 * w).toFixed(2)} ${(y + y1 * h).toFixed(2)}L${(x + x2 * w).toFixed(2)} ${(y + y2 * h).toFixed(2)}`; }).join("");
-/** The decimal digits of a non-negative whole number, most significant first (padded with zeros to `width` digits). */
+/** Where cell `i` of a number's zigzag sits, in cells: across, i down every other one; or the transpose. */
+const boxCell = (i: number, layout: BoxLayout = BoxLayout.Horizontal): { x: number; y: number } => (layout === BoxLayout.Horizontal ? { x: i, y: i % 2 } : { x: i % 2, y: i });
+/** The decimal digits of a non-negative whole number, most significant first (zero-padded to `width` digits). */
 const digitsOf = (n: number, width = 1): number[] => String(Math.max(0, Math.trunc(n))).padStart(width, "0").split("").map(Number);
-/** A number as box digits in a row, each digit a square `height` px tall, `width` digits at least. */
-const boxNumeral = (n: number, o: { height?: number; width?: number } = {}): HTMLElement => {
-  const hgt = o.height ?? 14, ds = digitsOf(n, o.width ?? 1), cw = 1, gap = 0.4, wUnits = ds.length * cw + (ds.length - 1) * gap;
+const strokesPath = (segs: readonly BoxSegment[], cell: number, ox: number, oy: number): string => segs.map(([x1, y1, x2, y2]) => `M${(ox + x1 * cell).toFixed(2)} ${(oy + y1 * cell).toFixed(2)}L${(ox + x2 * cell).toFixed(2)} ${(oy + y2 * cell).toFixed(2)}`).join("");
+/** One digit 0..9 as path data in a cell of `cell` units at (x, y). */
+const boxDigitPath = (digit: number, cell = 1, x = 0, y = 0): string => strokesPath(BOX_SIDES[Math.max(0, Math.min(9, Math.trunc(digit)))] ?? [], cell, x, y);
+/** A number's glyph: path data for its digits on the zigzag, and the box it fills (in the same units, `cell` per cell). */
+const boxNumberPath = (digits: readonly number[], o: { cell?: number; layout?: BoxLayout; x?: number; y?: number } = {}): { d: string; w: number; h: number } => {
+  const cell = o.cell ?? 1, layout = o.layout ?? BoxLayout.Horizontal, n = Math.max(1, digits.length), ox = o.x ?? 0, oy = o.y ?? 0;
+  const d = digits.map((dg, i) => { const c = boxCell(i, layout); return boxDigitPath(dg, cell, ox + c.x * cell, oy + c.y * cell); }).join("");
+  const long = n, short = n > 1 ? 2 : 1;
+  return { d, w: (layout === BoxLayout.Horizontal ? long : short) * cell, h: (layout === BoxLayout.Horizontal ? short : long) * cell };
+};
+/** A whole number as one glyph, `cell` px per cell (default 8). */
+const boxNumber = (n: number, o: { cell?: number; layout?: BoxLayout; width?: number } = {}): HTMLElement => {
+  const cell = o.cell ?? 8, g = boxNumberPath(digitsOf(n, o.width ?? 1), { cell: 1, layout: o.layout });
   const el = h("span", { class: "icon box", title: String(n) });
-  el.innerHTML = `<svg viewBox="-0.15 -0.15 ${(wUnits + 0.3).toFixed(2)} 1.3" width="${((hgt * (wUnits + 0.3)) / 1.3).toFixed(1)}" height="${hgt}" fill="none" stroke="currentColor" stroke-width="0.09" stroke-linecap="square">${ds.map((d, i) => `<path d="${boxDigitPath(d, cw, 1, i * (cw + gap), 0)}"/>`).join("")}</svg>`;
+  el.innerHTML = `<svg viewBox="-0.1 -0.1 ${g.w + 0.2} ${g.h + 0.2}" width="${((g.w + 0.2) * cell).toFixed(1)}" height="${((g.h + 0.2) * cell).toFixed(1)}" fill="none" stroke="currentColor" stroke-width="${(1.2 / cell).toFixed(3)}" stroke-linecap="square"><path d="${g.d}"/></svg>`;
   return el;
 };
-/** A time as box digits, HHMM with a small space between hours and minutes (no colon): `at` is epoch ms, default now. */
-const boxClock = (at: number = Date.now(), o: { height?: number } = {}): HTMLElement => {
+/** An expression as a straight row: numbers (each its own zigzag glyph) and operators, e.g. boxExpression([82, BoxOp.Plus, 85, BoxOp.Equals, 167]). */
+const boxExpression = (items: readonly (number | BoxOp)[], o: { cell?: number; gap?: number } = {}): HTMLElement => {
+  const cell = o.cell ?? 8, gap = o.gap ?? 0.6;
+  let x = 0, hmax = 1, d = "";
+  for (const it of items) {
+    if (typeof it === "number") { const g = boxNumberPath(digitsOf(it), { x }); d += g.d; x += g.w + gap; hmax = Math.max(hmax, g.h / 1); }
+    else { d += strokesPath(BOX_OPS[it], 1, x, 0); x += 1.4 + gap; }
+  }
+  const el = h("span", { class: "icon box" });
+  el.innerHTML = `<svg viewBox="-0.1 -0.1 ${(x - gap + 0.2).toFixed(2)} ${hmax + 0.2}" width="${((x - gap + 0.2) * cell).toFixed(1)}" height="${((hmax + 0.2) * cell).toFixed(1)}" fill="none" stroke="currentColor" stroke-width="${(1.2 / cell).toFixed(3)}" stroke-linecap="square"><path d="${d}"/></svg>`;
+  return el;
+};
+/** A time: the hours and the minutes, each a two-digit glyph (a two-cell diagonal), with a small space between; `at` is epoch ms (default now). */
+const boxClock = (at: number = Date.now(), o: { cell?: number } = {}): HTMLElement => {
   const d = new Date(at);
-  return h("span", { class: "boxclock", style: "display:inline-flex;gap:0.4em" }, boxNumeral(d.getHours(), { ...o, width: 2 }), boxNumeral(d.getMinutes(), { ...o, width: 2 }));
+  return h("span", { class: "boxclock", style: "display:inline-flex;gap:0.5em" }, boxNumber(d.getHours(), { ...o, width: 2 }), boxNumber(d.getMinutes(), { ...o, width: 2 }));
 };
 
 // ------------------------------------------------ typed marks: sigils without strings
@@ -1744,11 +1771,10 @@ function drawFrame(): void {
       marks += `<text x="${f(x + cell / 2)}" y="${f(y + 11.4)}" text-anchor="middle" fill="${on ? "#000" : "currentColor"}" stroke="none" style="font:${on ? 400 : 300} 11.5px var(--sans)">${escHtml(sc.tab)}</text>`;
     });
     if (frameOpts.clock) {
-      // a small clock beside the tabs: HHMM as box digits (a square with sides left out), a small space between hours and minutes
-      const now = new Date(), ch = 10, cw = 10, gap = 3, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 3;
-      const digit = (dgt: number, x: number) => `<path d="${boxDigitPath(dgt, cw, ch, x, gy)}" stroke-width="1.2" stroke-linecap="square"/>`;
-      const hh = digitsOf(now.getHours(), 2), mm = digitsOf(now.getMinutes(), 2), pair = 2 * cw + gap, colon = 6;
-      marks += digit(hh[0], gx) + digit(hh[1], gx + cw + gap) + digit(mm[0], gx + pair + colon) + digit(mm[1], gx + pair + colon + cw + gap);
+      // a small clock beside the tabs: the hours and the minutes, each a two-digit box glyph (two cells on a diagonal), a small space between
+      const now = new Date(), c = 6.4, gx = w / 2 + (tabs.length * cell + (tabs.length - 1) * gap0) / 2 + 30, gy = 1.6, gapx = 6;
+      const hh = boxNumberPath(digitsOf(now.getHours(), 2), { cell: c, x: gx, y: gy }), mm = boxNumberPath(digitsOf(now.getMinutes(), 2), { cell: c, x: gx + hh.w + gapx, y: gy });
+      marks += `<path d="${hh.d}${mm.d}" stroke-width="1.1" stroke-linecap="square"/>`;
     }
   } else {
     d += `M${tb.x} ${tb.y}h${tb.w}v${tb.h}h${-tb.w}zM${tb.x + 54} ${tb.y}v${tb.h}M${tb.x + tb.w - 92} ${tb.y}v${tb.h}`;
@@ -2812,7 +2838,7 @@ const ui = {
 const exported: Record<string, unknown> = {
   ...prims, row, col, grid, box, card, big, heading, divider, badge, stat, list, table, kv, progress,
   bars, sparkline, agenda, weather, md, clock, countdown, live,
-  boxNumeral, boxClock, usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
+  boxNumber, boxExpression, boxClock, BoxOp, BoxLayout, usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
   icon, weatherIcon, say, sunArc, hourly, habitGrid, timerRing, tearoff, note, presence, moon,
   tile, levelTile, dayDial, ruler, statStrip, pills, slider, menu, device, hero,
   panel, meta, claudeLine, tilegrid, dotClock, dayStrip, timeline, areaChart,
