@@ -1723,6 +1723,14 @@ function tap(x: number, y: number): string | null {
   return screenDefs.get(currentScreen)?.tiles.find((t) => t.id === el?.dataset.tile)?.opens ?? null;
 }
 
+/** The tabbed screen `delta` places along the tab bar from the current one, wrapping (what a swipe asks for); null without a tab bar. A pure query like `tap`. */
+function step(delta: number): string | null {
+  const ids = [...screenDefs.values()].filter((sc) => sc.tab).map((sc) => sc.id);
+  if (!ids.length) return null;
+  const at = Math.max(0, ids.indexOf(currentScreen ?? ""));
+  return ids[(((at + delta) % ids.length) + ids.length) % ids.length];
+}
+
 /** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
 function go(id: string, o: { hold?: number } = {}): boolean {
   if (!screenDefs.has(id)) { console.warn("ui.go: no screen", id, "- have:", [...screenDefs.keys()].join(", ")); return false; }
@@ -1780,7 +1788,7 @@ function drawFrame(): void {
   if (tabs.length) {
     // the screens you can ask for, one glyph each, compact in the top margin between the corner clusters; the current one on a solid square.
     // Display only: say "show energy". (The layer is blended with "difference": the white square shows black, and black text on it shows white.)
-    const cell = 15, gap0 = 3, x0 = (w - (tabs.length * cell + (tabs.length - 1) * gap0)) / 2, y = 1;
+    const cell = 15, gap0 = 9, x0 = (w - (tabs.length * cell + (tabs.length - 1) * gap0)) / 2, y = 1;
     tabTargets = tabs.map((sc, i) => ({ from: x0 + i * (cell + gap0) - gap0 / 2, to: x0 + i * (cell + gap0) + cell + gap0 / 2, screen: sc.id }));   // what `tap` hits: each tab's glyph plus half the gaps
     tabs.forEach((sc, i) => {
       const x = x0 + i * (cell + gap0), on = sc.id === currentScreen;
@@ -2879,6 +2887,8 @@ const ui = {
   selfTest, frames, docs,
   /** What a tap at a point of the scene should show: a screen id, or null. A tab in the top band, a tile's `opens` screen on home, home elsewhere. A pure query: the page stays display-only. */
   tap,
+  /** The tabbed screen delta places along the tab bar from the current one (1 = next, -1 = previous), wrapping: what a swipe asks for. A pure query. */
+  step,
   size: (w: number, ht: number) => { screen.style.width = w + "px"; screen.style.height = ht + "px"; adapt(); },
   css: (text: string) => document.head.append(h("style", text)),
   help: () => HELP,

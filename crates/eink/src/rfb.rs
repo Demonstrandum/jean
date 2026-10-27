@@ -28,6 +28,13 @@ impl Screen {
         }
     }
 
+    /// How many rectangles, and how many pixels, differ between the frame on show and `next` (for diagnosing refresh traffic).
+    pub fn damage_to(&self, next: &Frame) -> (usize, usize) {
+        let st = self.state.lock().unwrap();
+        let rects = damage_rects(&st.1, next);
+        (rects.len(), rects.iter().map(|r| r.w * r.h).sum())
+    }
+
     pub fn size(&self) -> (usize, usize) {
         let s = self.state.lock().unwrap();
         (s.1.w, s.1.h)
@@ -52,13 +59,23 @@ fn raw(frame: &Frame, r: Rect) -> Vec<u8> {
     out
 }
 
-/// What to do with a tap (a press and a release close together): the frame pixel where it began.
-pub type OnTap = Arc<dyn Fn(usize, usize) + Send + Sync>;
+/// What a finger did on the panel, in frame pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gesture {
+    /// Down and up in the same place: where it began.
+    Tap { x: usize, y: usize },
+    /// Down, a long way across, up.
+    Swipe { from: (usize, usize), to: (usize, usize) },
+}
 
-/// A press and release this close (frame pixels) is a tap; further apart it is a drag, which is ignored.
+/// What to do with a gesture.
+pub type OnGesture = Arc<dyn Fn(Gesture) + Send + Sync>;
+
+/// Press and release within this many frame pixels of each other is a tap; at least `SWIPE_MIN` apart is a swipe; in between is neither (a wobble).
 const TAP_SLOP: usize = 60;
+const SWIPE_MIN: usize = 240;
 
-fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_tap: OnTap) -> std::io::Result<()> {
+fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_gesture: OnGesture) -> std::io::Result<()> {
     let mut pressed: Option<(usize, usize)> = None;
     s.write_all(b"RFB 003.008\n")?;
     read_exact(&mut s, 12)?;
@@ -122,8 +139,11 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_tap: OnTap) -> std::io
                     (true, None) => pressed = Some((x, y)),
                     (false, Some((px, py))) => {
                         pressed = None;
-                        if px.abs_diff(x) <= TAP_SLOP && py.abs_diff(y) <= TAP_SLOP {
-                            on_tap(px, py);
+                        let far = px.abs_diff(x).max(py.abs_diff(y));
+                        if far <= TAP_SLOP {
+                            on_gesture(Gesture::Tap { x: px, y: py });
+                        } else if far >= SWIPE_MIN {
+                            on_gesture(Gesture::Swipe { from: (px, py), to: (x, y) });
                         }
                     }
                     _ => {}
@@ -139,14 +159,14 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_tap: OnTap) -> std::io
 }
 
 /// Listen on `addr` and serve `screen` to every client. Returns the address actually bound.
-pub fn serve(addr: &str, screen: Arc<Screen>, on_tap: OnTap) -> std::io::Result<std::net::SocketAddr> {
+pub fn serve(addr: &str, screen: Arc<Screen>, on_gesture: OnGesture) -> std::io::Result<std::net::SocketAddr> {
     let listener = TcpListener::bind(addr)?;
     let bound = listener.local_addr()?;
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
-            let (screen, on_tap) = (screen.clone(), on_tap.clone());
+            let (screen, on_gesture) = (screen.clone(), on_gesture.clone());
             std::thread::spawn(move || {
-                let _ = serve_client(conn, screen, on_tap);
+                let _ = serve_client(conn, screen, on_gesture);
             });
         }
     });
@@ -202,7 +222,7 @@ mod tests {
         let mut f = Frame::white(16, 8);
         f.px[0] = 0;
         let screen = Screen::new(f.clone());
-        let addr = serve("127.0.0.1:0", screen.clone(), Arc::new(|_, _| {})).unwrap();
+        let addr = serve("127.0.0.1:0", screen.clone(), Arc::new(|_| {})).unwrap();
         let (mut v, size) = Viewer::connect(addr);
         assert_eq!(size, (16, 8));
         let full = v.request(false, 16, 8);
@@ -235,11 +255,11 @@ mod tests {
     }
 
     #[test]
-    fn a_press_and_release_close_together_is_a_tap_and_a_drag_is_not() {
-        let taps: Arc<Mutex<Vec<(usize, usize)>>> = Default::default();
-        let t2 = taps.clone();
+    fn a_press_and_release_close_together_is_a_tap_and_a_long_stroke_a_swipe() {
+        let seen: Arc<Mutex<Vec<Gesture>>> = Default::default();
+        let s2 = seen.clone();
         let screen = Screen::new(Frame::white(16, 8));
-        let addr = serve("127.0.0.1:0", screen, Arc::new(move |x, y| t2.lock().unwrap().push((x, y)))).unwrap();
+        let addr = serve("127.0.0.1:0", screen, Arc::new(move |g| s2.lock().unwrap().push(g))).unwrap();
         let (mut v, _) = Viewer::connect(addr);
         let pointer = |v: &mut Viewer, mask: u8, x: u16, y: u16| {
             let mut m = vec![5, mask];
@@ -250,8 +270,10 @@ mod tests {
         pointer(&mut v, 1, 700, 300);
         pointer(&mut v, 0, 705, 302); // a tap, where it began
         pointer(&mut v, 1, 100, 100);
-        pointer(&mut v, 0, 600, 100); // a drag
+        pointer(&mut v, 0, 200, 100); // a wobble: neither
+        pointer(&mut v, 1, 1000, 500);
+        pointer(&mut v, 0, 400, 520); // a swipe
         v.request(false, 16, 8); // the server has handled everything sent before this
-        assert_eq!(*taps.lock().unwrap(), vec![(700, 300)]);
+        assert_eq!(*seen.lock().unwrap(), vec![Gesture::Tap { x: 700, y: 300 }, Gesture::Swipe { from: (1000, 500), to: (400, 520) }]);
     }
 }

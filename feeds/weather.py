@@ -2,7 +2,7 @@
 """Weather, sun, moon and air quality from Open-Meteo (free, no key), every 10 min, for the lat/lon in config.json.
 Writes the typed keys in crates/ui/ts/schema.ts (K.wx.*, K.sun.*, K.moon.*, K.air.*): instants are epoch ms, categories are the
 enums in _schema.py (generated from that schema), amounts are numbers. No text is produced for the display to parse."""
-import datetime, zoneinfo
+import datetime, math, zoneinfo
 from _lib import config, get_json, put, forever, log
 from _schema import Sky, Pollutant
 
@@ -18,6 +18,18 @@ def moon_phase(now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     ref = datetime.datetime(2000, 1, 6, 18, 14, tzinfo=datetime.timezone.utc)
     return ((now - ref).total_seconds() / 86400 / 29.530588853) % 1
+
+
+def sun_times(lat, lon, day):
+    """Sunrise and sunset (aware UTC datetimes) from the NOAA solar equations, good to about a minute: the day dial must not depend on the network."""
+    n = day.timetuple().tm_yday
+    g = 2 * math.pi / 365 * (n - 1)
+    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(g) - 0.032077 * math.sin(g) - 0.014615 * math.cos(2 * g) - 0.040849 * math.sin(2 * g))
+    decl = 0.006918 - 0.399912 * math.cos(g) + 0.070257 * math.sin(g) - 0.006758 * math.cos(2 * g) + 0.000907 * math.sin(2 * g) - 0.002697 * math.cos(3 * g) + 0.00148 * math.sin(3 * g)
+    cos_ha = math.cos(math.radians(90.833)) / (math.cos(math.radians(lat)) * math.cos(decl)) - math.tan(math.radians(lat)) * math.tan(decl)
+    ha = math.degrees(math.acos(max(-1.0, min(1.0, cos_ha))))      # the polar day and night clamp to a day or a night
+    base = datetime.datetime(day.year, day.month, day.day, tzinfo=datetime.timezone.utc)
+    return base + datetime.timedelta(minutes=720 - 4 * (lon + ha) - eqtime), base + datetime.timedelta(minutes=720 - 4 * (lon - ha) - eqtime)
 
 
 def ms(dt):
@@ -38,6 +50,8 @@ def step():
     if lat is None:
         raise RuntimeError("config.json needs lat and lon")
     tz = zoneinfo.ZoneInfo(tzname)
+    rise, sets = sun_times(lat, lon, datetime.datetime.now(tz).date())
+    put({"sun.rise": ms(rise), "sun.set": ms(sets)})              # the dial's day and night, whatever the API does next
     url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&timezone=%s&forecast_days=2&wind_speed_unit=mph"
            "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,pressure_msl,cloud_cover"
            "&hourly=temperature_2m,precipitation_probability,uv_index&daily=sunrise,sunset,uv_index_max") % (lat, lon, tzname.replace("/", "%2F"))

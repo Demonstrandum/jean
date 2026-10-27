@@ -27,6 +27,12 @@
 #define MESSAGE_INITIALIZE 0
 #define MESSAGE_UPDATE 1
 #define MESSAGE_USERINPUT 4
+#define MESSAGE_SET_REFRESH_MODE 5
+#define REFRESH_MODE_UFAST 0
+#define REFRESH_MODE_FAST 1
+#define REFRESH_MODE_ANIMATE 2
+#define REFRESH_MODE_CONTENT 3
+#define REFRESH_MODE_UI 4
 #define INPUT_TOUCH_PRESS 0x10
 #define INPUT_TOUCH_RELEASE 0x11
 #define INPUT_TOUCH_UPDATE 0x12
@@ -41,7 +47,7 @@ struct init_msg { unsigned int key; uint8_t type; };
 struct update_msg { int type; int x, y, w, h; };
 struct client_msg {
     uint8_t type;
-    union { struct init_msg init; struct update_msg update; } u;
+    union { struct init_msg init; struct update_msg update; int refresh_mode; } u;
 };
 struct init_reply { int shm_key; size_t shm_size; };
 struct server_msg { uint8_t type; struct init_reply init; };
@@ -95,6 +101,23 @@ static void qtfb_update(int type, int x, int y, int w, int h) {
     m.u.update.y = y;
     m.u.update.w = w;
     m.u.update.h = h;
+    send(qtfb_sock, &m, sizeof m, 0);
+}
+
+/* How the panel refreshes what we draw: JEAN_REFRESH = ufast | fast | animate | content | ui (default content: the most faithful grays, no
+ * darkening of dithered areas, at the cost of slower updates). */
+static void set_refresh_mode(const char *name) {
+    int mode = REFRESH_MODE_CONTENT;
+    if (name) {
+        if (!strcmp(name, "ufast")) mode = REFRESH_MODE_UFAST;
+        else if (!strcmp(name, "fast")) mode = REFRESH_MODE_FAST;
+        else if (!strcmp(name, "animate")) mode = REFRESH_MODE_ANIMATE;
+        else if (!strcmp(name, "ui")) mode = REFRESH_MODE_UI;
+    }
+    struct client_msg m;
+    memset(&m, 0, sizeof m);
+    m.type = MESSAGE_SET_REFRESH_MODE;
+    m.u.refresh_mode = mode;
     send(qtfb_sock, &m, sizeof m, 0);
 }
 
@@ -154,13 +177,15 @@ static int pump_touch(int rfb) {
         if (n == 0) exit(0); /* AppLoad closed the window */
         if (n < 0) return errno == EAGAIN || errno == EWOULDBLOCK ? 0 : -1;
         if (m.type != MESSAGE_USERINPUT) continue;
+        static int last_x, last_y;
         int down;
         if (m.input_type == INPUT_TOUCH_PRESS) { down = 1; fprintf(stderr, "jean-view: touch %d,%d\n", m.x, m.y); }
         else if (m.input_type == INPUT_TOUCH_UPDATE) down = 1;
-        else if (m.input_type == INPUT_TOUCH_RELEASE) down = 0;
+        else if (m.input_type == INPUT_TOUCH_RELEASE) { down = 0; fprintf(stderr, "jean-view: release %d,%d (last %d,%d)\n", m.x, m.y, last_x, last_y); }
         else continue;
-        if (m.x < 0 || m.y < 0) continue;
-        uint8_t ev[6] = {5, (uint8_t)down, (uint8_t)(m.x >> 8), (uint8_t)m.x, (uint8_t)(m.y >> 8), (uint8_t)m.y};
+        if (down) { if (m.x < 0 || m.y < 0) continue; last_x = m.x; last_y = m.y; }
+        int ex = down ? m.x : last_x, ey = down ? m.y : last_y; /* a release carries where the finger last was, whatever the event says */
+        uint8_t ev[6] = {5, (uint8_t)down, (uint8_t)(ex >> 8), (uint8_t)ex, (uint8_t)(ey >> 8), (uint8_t)ey};
         if (write_all(rfb, ev, sizeof ev)) return -1;
     }
 }
@@ -224,6 +249,7 @@ int main(void) {
         return 1;
     }
     qtfb_connect((unsigned int)strtoul(key, NULL, 10));
+    set_refresh_mode(getenv("JEAN_REFRESH"));
     for (size_t i = 0; i < (size_t)WIDTH * HEIGHT; i++) fb[i] = 0xFFFF;
     qtfb_update(UPDATE_ALL, 0, 0, 0, 0);
     for (;;) {

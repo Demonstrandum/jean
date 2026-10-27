@@ -35,15 +35,38 @@ def get_json(url, timeout=20):
         return json.load(r)
 
 
+# The server that started a feed supervises it, but if the server is killed its feeds would live on (every run and every test used to leave a
+# full set behind, all polling the same APIs). A feed whose parent has changed has been orphaned: it stops.
+_PARENT = os.getppid()
+
+
+def orphaned():
+    return os.getppid() != _PARENT
+
+
+def nap(seconds):
+    """Sleep, in short slices, and exit if the server that started this feed is gone."""
+    end = time.time() + seconds
+    while True:
+        if orphaned():
+            sys.exit(0)
+        left = end - time.time()
+        if left <= 0:
+            return
+        time.sleep(min(2, left))
+
+
 def forever(period, fn, retry=60):
     """Call fn() every `period` seconds; on an exception log it and retry after `retry` seconds."""
     while True:
+        if orphaned():
+            sys.exit(0)
         try:
             fn()
-            time.sleep(period)
+            nap(period)
         except Exception as e:  # a feed must outlive a bad network moment
             log("error:", repr(e))
-            time.sleep(retry)
+            nap(retry)
 
 
 def secrets():

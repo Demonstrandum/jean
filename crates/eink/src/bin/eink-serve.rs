@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use eink::cdp::{find_chrome, Browser};
-use eink::rfb::{serve, OnTap, Screen};
+use eink::rfb::{serve, Gesture, OnGesture, Screen};
 use eink::{capture, Frame, Panel};
 
 fn main() {
     let mut a = std::env::args().skip(1);
+    let mut dump: Option<String> = None;
     let (mut display, mut listen, mut panel, mut every, mut chrome) = ("http://127.0.0.1:8788".to_string(), "0.0.0.0:5900".to_string(), Panel::Remarkable2Landscape, 1000u64, find_chrome());
     while let Some(flag) = a.next() {
         let mut val = || a.next().unwrap_or_else(|| panic!("{flag} needs a value"));
@@ -18,6 +19,7 @@ fn main() {
             "--display" => display = val(),
             "--listen" => listen = val(),
             "--every-ms" => every = val().parse().expect("a number"),
+            "--dump" => dump = Some(val()),
             "--chrome" => chrome = Some(val().into()),
             "--panel" => {
                 panel = match val().as_str() {
@@ -36,31 +38,56 @@ fn main() {
     let browser = Arc::new(Mutex::new(Browser::open(&chrome, &panel.page(&display), panel.scene(), panel.scale()).expect("cannot open the display page")));
     std::thread::sleep(Duration::from_secs(2));
     let first = capture(&mut browser.lock().unwrap(), panel).expect("first screenshot");
+    if let Some(path) = &dump {
+        eink::write_png(path, &first).expect("cannot write the dump");
+    }
     let screen: Arc<Screen> = Screen::new(first);
-    // a touch on the panel: find its place in the scene, ask the page what a tap there should show, and navigate (the page itself is display-only)
-    let on_tap: OnTap = {
+    // a touch on the panel: find its place in the scene, ask the page what it should show, and navigate (the page itself is display-only)
+    let show = {
         let (browser, display) = (browser.clone(), display.clone());
-        Arc::new(move |fx, fy| {
-            let Some((x, y)) = panel.to_scene(fx, fy) else { return };
-            let shown = browser.lock().unwrap().evaluate(&format!("ui.tap({x:.1}, {y:.1})"));
-            match shown {
+        move |what: &str, query: String| {
+            match browser.lock().unwrap().evaluate(&query) {
                 Ok(serde_json::Value::String(name)) => {
-                    eprintln!("eink-serve: tap at {x:.0},{y:.0} shows {name}");
+                    eprintln!("eink-serve: {what} shows {name}");
                     if let Err(e) = ureq::post(&format!("{display}/screen?name={name}")).call() {
                         eprintln!("eink-serve: cannot show {name}: {e}");
                     }
                 }
-                Ok(_) => eprintln!("eink-serve: tap at {x:.0},{y:.0} hits nothing"),
+                Ok(_) => eprintln!("eink-serve: {what} hits nothing"),
                 Err(e) => eprintln!("eink-serve: {e}"),
             }
-        })
+        }
     };
-    let addr = serve(&listen, screen.clone(), on_tap).expect("cannot listen");
+    let on_gesture: OnGesture = Arc::new(move |g| match g {
+        Gesture::Tap { x, y } => {
+            if let Some((sx, sy)) = panel.to_scene(x, y) {
+                show(&format!("tap at {sx:.0},{sy:.0}"), format!("ui.tap({sx:.1}, {sy:.1})"));
+            }
+        }
+        Gesture::Swipe { from, to } => {
+            // a swipe across the screen (in the scene's own orientation) turns the page: left for the next screen, right for the previous
+            if let (Some((x0, y0)), Some((x1, y1))) = (panel.to_scene(from.0, from.1), panel.to_scene(to.0, to.1)) {
+                let (dx, dy) = (x1 - x0, y1 - y0);
+                if dx.abs() > dy.abs() {
+                    show(if dx < 0.0 { "swipe left" } else { "swipe right" }, format!("ui.step({})", if dx < 0.0 { 1 } else { -1 }));
+                }
+            }
+        }
+    });
+    let addr = serve(&listen, screen.clone(), on_gesture).expect("cannot listen");
     eprintln!("eink-serve: {}x{} on vnc://{addr}", screen.size().0, screen.size().1);
     loop {
         std::thread::sleep(Duration::from_millis(every));
         match capture(&mut browser.lock().unwrap(), panel) {
-            Ok(f) => screen.show(f),
+            Ok(f) => {
+                if std::env::var_os("EINK_DEBUG").is_some() {
+                    let (rects, area) = screen.damage_to(&f);
+                    if rects > 0 {
+                        eprintln!("eink-serve: {rects} rects, {area} px changed");
+                    }
+                }
+                screen.show(f)
+            }
             Err(e) => eprintln!("eink-serve: {e}"),
         }
     }

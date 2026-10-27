@@ -1108,6 +1108,14 @@ What a tap at a point of the scene (px, as laid out) should show, or null. In th
 tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
 such as the e-ink server, asks here and then navigates with `POST /screen`.
 
+### `step`
+
+```ts
+function step(delta: number): string | null
+```
+
+The tabbed screen `delta` places along the tab bar from the current one, wrapping (what a swipe asks for); null without a tab bar. A pure query like `tap`.
+
 ### `go`
 
 ```ts

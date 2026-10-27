@@ -291,6 +291,8 @@ declare function screenHandle(id: string): ScreenHandle;
  * tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
  * such as the e-ink server, asks here and then navigates with `POST /screen`. */
 declare function tap(x: number, y: number): string | null;
+/** The tabbed screen `delta` places along the tab bar from the current one, wrapping (what a swipe asks for); null without a tab bar. A pure query like `tap`. */
+declare function step(delta: number): string | null;
 /** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
 declare function go(id: string, o?: { hold?: number }): boolean;
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
@@ -675,6 +677,7 @@ declare const ui: {
   frames: typeof frames;
   docs: typeof docs;
   tap: typeof tap;
+  step: typeof step;
   size(w: number, ht: number): any;
   css(text: string): any;
   help(): any;

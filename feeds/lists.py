@@ -2,7 +2,7 @@
 """The shopping list from data/groceries.json (Claude edits it on request); the calendar is feeds/calendar.py.
 Writes K.shop.items [{text, qty, done}] and K.notes.items [{text, due}] (crates/ui/ts/schema.ts) from data/groceries.json and data/notes.json."""
 import datetime, json, os, time, zoneinfo
-from _lib import ROOT, config, put, log
+from _lib import ROOT, config, put, log, nap, orphaned
 
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
@@ -64,10 +64,10 @@ def notes():
 if __name__ == "__main__":
     tz = zoneinfo.ZoneInfo(config().get("tz", "Europe/London"))
     last = None
-    while True:
+    while not orphaned():
         # the minute matters (what is next, what is past), and the files may change at any moment
         key = tuple(os.path.getmtime(os.path.join(ROOT, "data", f)) if os.path.exists(os.path.join(ROOT, "data", f)) else 0 for f in ("groceries.json", "notes.json"))
         if key != last:
             last = key
             put({**shopping(), **notes()})
-        time.sleep(3)
+        nap(3)

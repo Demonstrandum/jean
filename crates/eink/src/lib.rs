@@ -76,6 +76,15 @@ pub fn damage_rects(a: &Frame, b: &Frame) -> Vec<Rect> {
     out
 }
 
+/// A frame as an 8-bit gray PNG (for looking at what is sent).
+pub fn write_png(path: &str, f: &Frame) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), f.w as u32, f.h as u32);
+    enc.set_color(png::ColorType::Grayscale);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().and_then(|mut w| w.write_image_data(&f.px)).map_err(|e| e.to_string())
+}
+
 /// The panel the scene is shown on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {

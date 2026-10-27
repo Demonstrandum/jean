@@ -63,7 +63,7 @@ pub fn parse_line(line: &str) -> Vec<(String, Value)> {
 }
 
 fn is_script(path: &Path) -> bool {
-    path.is_file() && path.file_name().and_then(|n| n.to_str()).map_or(false, |n| !n.starts_with('.') && !n.starts_with('_'))
+    path.is_file() && path.file_name().and_then(|n| n.to_str()).map_or(false, |n| !n.starts_with('.') && !n.starts_with('_') && !n.starts_with("test_"))
 }
 
 fn command_for(path: &Path) -> Command {
