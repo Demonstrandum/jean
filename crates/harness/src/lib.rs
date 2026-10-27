@@ -11,3 +11,5 @@ pub mod audio;
 pub mod stt;
 pub mod tts;
 pub mod wake;
+pub mod prompts;
+pub mod session;
