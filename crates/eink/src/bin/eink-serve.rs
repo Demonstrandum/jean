@@ -1,6 +1,6 @@
 //! Show the display on a panel over VNC: hold the display page open in headless Chrome, and about every second screenshot it, dither it,
 //! and publish it when it has changed.
-//!   eink-serve [--display http://127.0.0.1:8788] [--listen 0.0.0.0:5900] [--panel native|rm2|rm2-portrait] [--every-ms 1000] [--chrome PATH] [--dump out.png]
+//!   eink-serve [--display http://127.0.0.1:8788] [--listen 0.0.0.0:5900] [--panel native|rm2|rm2-portrait|rm2-turned-cw|rm2-turned-ccw] [--every-ms 1000] [--chrome PATH] [--dump out.png]
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,6 +24,8 @@ fn main() {
                     "native" => Panel::Native,
                     "rm2" => Panel::Remarkable2Landscape,
                     "rm2-portrait" => Panel::Remarkable2Portrait,
+                    "rm2-turned-cw" => Panel::Remarkable2TurnedCw,
+                    "rm2-turned-ccw" => Panel::Remarkable2TurnedCcw,
                     other => panic!("unknown panel {other}"),
                 }
             }

@@ -55,6 +55,11 @@ pub enum Panel {
     Remarkable2Landscape,
     /// reMarkable 2 in portrait: 1404x1872, the scene across the top.
     Remarkable2Portrait,
+    /// The panel's native 1404x1872 frame with the landscape scene turned a quarter clockwise: for the tablet held in landscape, showing a
+    /// viewer (such as AppLoad's) that hands over the portrait frame as it is.
+    Remarkable2TurnedCw,
+    /// The same turned a quarter anticlockwise.
+    Remarkable2TurnedCcw,
 }
 
 /// The scene's size in CSS pixels.
@@ -65,32 +70,57 @@ impl Panel {
         match self {
             Panel::Native => SCENE,
             Panel::Remarkable2Landscape => (1872, 1404),
-            Panel::Remarkable2Portrait => (1404, 1872),
+            Panel::Remarkable2Portrait | Panel::Remarkable2TurnedCw | Panel::Remarkable2TurnedCcw => (1404, 1872),
+        }
+    }
+
+    /// The landscape panel the scene is laid out on before a turned panel rotates it (the panel itself when it is not turned).
+    fn laid_out_on(self) -> Panel {
+        match self {
+            Panel::Remarkable2TurnedCw | Panel::Remarkable2TurnedCcw => Panel::Remarkable2Landscape,
+            other => other,
         }
     }
 
     /// The factor the scene is rendered at so it fills the panel's width (rendering at the target scale, not stretching afterwards, keeps text sharp).
     pub fn scale(self) -> f64 {
-        self.size().0 as f64 / SCENE.0 as f64
+        self.laid_out_on().size().0 as f64 / SCENE.0 as f64
     }
 
     /// Where the rendered scene sits on the panel: horizontally filling, vertically centred.
     pub fn place(self, rendered: (usize, usize)) -> (usize, usize) {
-        let (pw, ph) = self.size();
+        let (pw, ph) = self.laid_out_on().size();
         (pw.saturating_sub(rendered.0) / 2, ph.saturating_sub(rendered.1) / 2)
     }
 }
 
 /// Gray pixels (one byte each, 0..=255) of size `rw x rh` put on a white panel, then dithered to 1 bit.
 pub fn compose(gray: &[u8], rw: usize, rh: usize, panel: Panel) -> Frame {
-    let (pw, ph) = panel.size();
+    let (pw, ph) = panel.laid_out_on().size();
     let (ox, oy) = panel.place((rw, rh));
     let mut canvas = vec![255u8; pw * ph];
     for y in 0..rh.min(ph.saturating_sub(oy)) {
         let n = rw.min(pw - ox);
         canvas[(oy + y) * pw + ox..(oy + y) * pw + ox + n].copy_from_slice(&gray[y * rw..y * rw + n]);
     }
-    dither::atkinson(&canvas, pw, ph)
+    let (canvas, w, h) = match panel {
+        Panel::Remarkable2TurnedCw => (turn(&canvas, pw, ph, true), ph, pw),
+        Panel::Remarkable2TurnedCcw => (turn(&canvas, pw, ph, false), ph, pw),
+        _ => (canvas, pw, ph),
+    };
+    dither::atkinson(&canvas, w, h)
+}
+
+/// A quarter turn of a `w x h` image: clockwise or anticlockwise; the result is `h x w`.
+fn turn(src: &[u8], w: usize, h: usize, clockwise: bool) -> Vec<u8> {
+    let mut out = vec![0u8; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let (nx, ny) = if clockwise { (h - 1 - y, x) } else { (y, w - 1 - x) };
+            out[ny * h + nx] = src[y * w + x];
+        }
+    }
+    out
 }
 
 /// Decode a PNG to gray (luma over white for any transparency): the pixels and the size.
@@ -150,6 +180,29 @@ mod tests {
         assert_eq!((f.w, f.h), (1872, 1404));
         assert_eq!(f.px[0], 255, "the margin is white");
         assert_eq!(f.px[700 * 1872 + 900], 0, "the scene is black where it was");
+    }
+
+    #[test]
+    fn a_turned_panel_is_the_portrait_frame_with_the_scene_quarter_turned() {
+        assert_eq!(Panel::Remarkable2TurnedCw.size(), (1404, 1872));
+        assert_eq!(Panel::Remarkable2TurnedCw.scale(), Panel::Remarkable2Landscape.scale());
+        // a 3x2 image with its top-left pixel set: clockwise it lands top-right of the 2x3 result, anticlockwise bottom-left
+        let img = [0u8, 9, 9, 9, 9, 9];
+        let cw = turn(&img, 3, 2, true);
+        assert_eq!((cw[1], cw.iter().filter(|v| **v == 0).count()), (0, 1));
+        let ccw = turn(&img, 3, 2, false);
+        assert_eq!(ccw[2 * 2], 0);
+        // and a scene whose top-left is black shows black in the portrait frame's top-right (clockwise)
+        let s = Panel::Remarkable2TurnedCw.scale();
+        let (rw, rh) = ((800.0 * s) as usize, (480.0 * s) as usize);
+        let mut g = vec![255u8; rw * rh];
+        g[0] = 0;
+        for y in 0..40 { for x in 0..40 { g[y * rw + x] = 0; } }
+        let f = compose(&g, rw, rh, Panel::Remarkable2TurnedCw);
+        assert_eq!((f.w, f.h), (1404, 1872));
+        let oy = 140; // the scene sits 140 px down the landscape canvas, which is 140 px in from the portrait frame's right edge
+        assert_eq!(f.px[20 * 1404 + (1404 - 1 - oy - 20)], 0);
+        assert_eq!(f.px[20 * 1404 + 20], 255);
     }
 
     #[test]
