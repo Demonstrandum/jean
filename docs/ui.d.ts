@@ -271,7 +271,7 @@ declare function zonesOverlap(a: Zone, b: Zone): boolean;
 type Slot<T extends Child = Child> = T | (() => T);
 /** How a tile is dressed: fill = its body stretches, list = ruled rows, legend = title on the border, iconic = centred icon, usage = filled to a history curve. */
 type TileTone = "fill" | "list" | "legend" | "iconic" | "usage";
-interface TileSpec { readonly id: string; readonly at: Zone; readonly title: string; readonly glyph?: IconName; readonly tone?: TileTone | readonly TileTone[]; readonly inverted?: boolean; readonly body?: Slot; readonly count?: Slot; readonly back?: Slot<Node>; readonly waves?: boolean | Parameters<typeof waves>[0]; readonly frameless?: boolean; }
+interface TileSpec { readonly id: string; readonly at: Zone; readonly title: string; readonly glyph?: IconName; readonly tone?: TileTone | readonly TileTone[]; readonly inverted?: boolean; readonly body?: Slot; readonly count?: Slot; readonly back?: Slot<Node>; readonly waves?: boolean | Parameters<typeof waves>[0]; readonly frameless?: boolean; readonly opens?: string; }
 interface ScreenSpec { readonly id: string; readonly tab?: string; readonly tiles: readonly TileSpec[]; }
 /** The handle `defineScreen` returns: read and change a screen's tiles one at a time. */
 interface ScreenHandle { readonly id: string; tiles(): readonly TileSpec[]; tile(id: string): TileSpec | undefined; setTile(spec: TileSpec): void; patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): void; removeTile(id: string): void; }
@@ -287,6 +287,10 @@ declare function renderScreen(id: string): void;
  * is shown; redefining the one on show rebuilds it. Overlapping zones or repeated tile ids throw (so the change is rolled back). */
 declare function defineScreen(spec: ScreenSpec): ScreenHandle;
 declare function screenHandle(id: string): ScreenHandle;
+/** What a tap at a point of the scene (px, as laid out) should show, or null. In the top band: the tab under it. On home: the `opens` screen of the
+ * tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
+ * such as the e-ink server, asks here and then navigates with `POST /screen`. */
+declare function tap(x: number, y: number): string | null;
 /** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
 declare function go(id: string, o?: { hold?: number }): boolean;
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
@@ -670,6 +674,7 @@ declare const ui: {
   selfTest: typeof selfTest;
   frames: typeof frames;
   docs: typeof docs;
+  tap: typeof tap;
   size(w: number, ht: number): any;
   css(text: string): any;
   help(): any;

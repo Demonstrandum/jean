@@ -1619,6 +1619,8 @@ interface TileSpec {
   readonly waves?: boolean | Parameters<typeof waves>[0];
   /** No tile chrome (no border, title or count): just the body, centred in its zone. */
   readonly frameless?: boolean;
+  /** The screen a tap on this tile expands to (see `tap`); omit it and the tile does nothing when touched. */
+  readonly opens?: string;
 }
 interface ScreenSpec {
   /** Identifier, unique: what `ui.go` and the server's `POST /screen?name=` take. */
@@ -1708,6 +1710,19 @@ function screenHandle(id: string): ScreenHandle {
   };
 }
 
+/**
+ * What a tap at a point of the scene (px, as laid out) should show, or null. In the top band: the tab under it. On home: the `opens` screen of the
+ * tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
+ * such as the e-ink server, asks here and then navigates with `POST /screen`.
+ */
+function tap(x: number, y: number): string | null {
+  if (y < 26) return tabTargets.find((t) => x >= t.from && x < t.to)?.screen ?? null;
+  if (currentScreen === null || currentScreen !== homeScreen) return homeScreen;
+  const r = screen.getBoundingClientRect(), k = r.width / screen.offsetWidth;
+  const el = document.elementFromPoint(r.left + x * k, r.top + y * k)?.closest<HTMLElement>("[data-tile]");
+  return screenDefs.get(currentScreen)?.tiles.find((t) => t.id === el?.dataset.tile)?.opens ?? null;
+}
+
 /** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
 function go(id: string, o: { hold?: number } = {}): boolean {
   if (!screenDefs.has(id)) { console.warn("ui.go: no screen", id, "- have:", [...screenDefs.keys()].join(", ")); return false; }
@@ -1723,6 +1738,7 @@ function go(id: string, o: { hold?: number } = {}): boolean {
 }
 
 
+let tabTargets: { from: number; to: number; screen: string }[] = [];
 let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; seconds?: boolean } | null = null, frameHooked = false;
 
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
@@ -1765,6 +1781,7 @@ function drawFrame(): void {
     // the screens you can ask for, one glyph each, compact in the top margin between the corner clusters; the current one on a solid square.
     // Display only: say "show energy". (The layer is blended with "difference": the white square shows black, and black text on it shows white.)
     const cell = 15, gap0 = 3, x0 = (w - (tabs.length * cell + (tabs.length - 1) * gap0)) / 2, y = 1;
+    tabTargets = tabs.map((sc, i) => ({ from: x0 + i * (cell + gap0) - gap0 / 2, to: x0 + i * (cell + gap0) + cell + gap0 / 2, screen: sc.id }));   // what `tap` hits: each tab's glyph plus half the gaps
     tabs.forEach((sc, i) => {
       const x = x0 + i * (cell + gap0), on = sc.id === currentScreen;
       if (on) marks += `<rect x="${f(x)}" y="${y}" width="${cell}" height="${cell}" fill="currentColor" stroke="none"/>`;
@@ -2860,6 +2877,8 @@ const ui = {
   defineScreen, go, screenOf: (id: string): ScreenHandle | undefined => (screenDefs.has(id) ? screenHandle(id) : undefined), screenIds: () => [...screenDefs.keys()], current: () => currentScreen,
   /** Show every screen with sample data and report how each fits (run inside a query so the DOM is restored). */
   selfTest, frames, docs,
+  /** What a tap at a point of the scene should show: a screen id, or null. A tab in the top band, a tile's `opens` screen on home, home elsewhere. A pure query: the page stays display-only. */
+  tap,
   size: (w: number, ht: number) => { screen.style.width = w + "px"; screen.style.height = ht + "px"; adapt(); },
   css: (text: string) => document.head.append(h("style", text)),
   help: () => HELP,

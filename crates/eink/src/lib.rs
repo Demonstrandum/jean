@@ -121,6 +121,21 @@ impl Panel {
         }
     }
 
+    /// Where a point of the panel's frame (pixels) is in the scene (CSS pixels): undoes the placement, the quarter turn and the scale. None off the scene.
+    pub fn to_scene(self, fx: usize, fy: usize) -> Option<(f64, f64)> {
+        let (lw, lh) = self.laid_out_on().size();
+        let (x, y) = match self {
+            Panel::Remarkable2TurnedCw => (fy as isize, lh as isize - 1 - fx as isize),
+            Panel::Remarkable2TurnedCcw => (lw as isize - 1 - fy as isize, fx as isize),
+            _ => (fx as isize, fy as isize),
+        };
+        let s = self.scale();
+        let (scene_w, scene_h) = self.scene();
+        let (ox, oy) = self.place(((scene_w as f64 * s) as usize, (scene_h as f64 * s) as usize));
+        let (sx, sy) = ((x - ox as isize) as f64 / s, (y - oy as isize) as f64 / s);
+        (sx >= 0.0 && sy >= 0.0 && sx < scene_w as f64 && sy < scene_h as f64).then_some((sx, sy))
+    }
+
     /// The display page to hold open for this panel.
     pub fn page(self, display: &str) -> String {
         let (w, h) = self.scene();
@@ -250,6 +265,25 @@ mod tests {
         assert_eq!((f.w, f.h), (1404, 1872));
         assert_eq!(f.px[20 * 1404 + (1404 - 1 - 20)], 0);
         assert_eq!(f.px[20 * 1404 + 20], 255);
+    }
+
+    #[test]
+    fn a_touch_on_the_panel_finds_its_place_in_the_scene() {
+        // landscape and portrait: just the scale (and, in portrait, the centring)
+        assert_eq!(Panel::Remarkable2Landscape.to_scene(1872 / 2, 1404 / 2), Some((400.0, 300.0)));
+        // turned: the same scene point, found through the quarter turn that compose makes
+        for panel in [Panel::Remarkable2TurnedCw, Panel::Remarkable2TurnedCcw] {
+            let s = panel.scale();
+            let scene = panel.scene();
+            let (rw, rh) = ((scene.0 as f64 * s) as usize, (scene.1 as f64 * s) as usize);
+            let mut g = vec![255u8; rw * rh];
+            for y in 600..640 { for x in 300..340 { g[y * rw + x] = 0; } }   // a black patch at landscape (300..340, 600..640)
+            let f = compose(&g, rw, rh, panel);
+            let i = f.px.iter().position(|p| *p == 0).unwrap();
+            let (sx, sy) = panel.to_scene(i % f.w, i / f.w).unwrap();
+            assert!((sx * s - 300.0).abs() < 41.0 && (sy * s - 600.0).abs() < 41.0, "{panel:?}: {sx},{sy}");
+        }
+        assert_eq!(Panel::Remarkable2TurnedCcw.to_scene(0, 5000), None);
     }
 
     #[test]

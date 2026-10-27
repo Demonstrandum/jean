@@ -1098,6 +1098,16 @@ is shown; redefining the one on show rebuilds it. Overlapping zones or repeated 
 function screenHandle(id: string): ScreenHandle
 ```
 
+### `tap`
+
+```ts
+function tap(x: number, y: number): string | null
+```
+
+What a tap at a point of the scene (px, as laid out) should show, or null. In the top band: the tab under it. On home: the `opens` screen of the
+tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
+such as the e-ink server, asks here and then navigates with `POST /screen`.
+
 ### `go`
 
 ```ts
@@ -2281,6 +2291,7 @@ interface TileSpec
 - `readonly back?: Slot<Node>;`
 - `readonly waves?: boolean | Parameters<typeof waves>[0];`
 - `readonly frameless?: boolean;`
+- `readonly opens?: string;`
 
 ### `ScreenSpec`
 

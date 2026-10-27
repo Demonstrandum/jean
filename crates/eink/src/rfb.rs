@@ -52,7 +52,14 @@ fn raw(frame: &Frame, r: Rect) -> Vec<u8> {
     out
 }
 
-fn serve_client(mut s: TcpStream, screen: Arc<Screen>) -> std::io::Result<()> {
+/// What to do with a tap (a press and a release close together): the frame pixel where it began.
+pub type OnTap = Arc<dyn Fn(usize, usize) + Send + Sync>;
+
+/// A press and release this close (frame pixels) is a tap; further apart it is a drag, which is ignored.
+const TAP_SLOP: usize = 60;
+
+fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_tap: OnTap) -> std::io::Result<()> {
+    let mut pressed: Option<(usize, usize)> = None;
     s.write_all(b"RFB 003.008\n")?;
     read_exact(&mut s, 12)?;
     s.write_all(&[1, 1])?; // one security type: None
@@ -109,7 +116,18 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>) -> std::io::Result<()> {
                 read_exact(&mut s, 7)?; // key event
             }
             5 => {
-                read_exact(&mut s, 5)?; // pointer event
+                let p = read_exact(&mut s, 5)?; // pointer event: button mask, x, y
+                let (x, y) = (u16::from_be_bytes([p[1], p[2]]) as usize, u16::from_be_bytes([p[3], p[4]]) as usize);
+                match (p[0] & 1 != 0, pressed) {
+                    (true, None) => pressed = Some((x, y)),
+                    (false, Some((px, py))) => {
+                        pressed = None;
+                        if px.abs_diff(x) <= TAP_SLOP && py.abs_diff(y) <= TAP_SLOP {
+                            on_tap(px, py);
+                        }
+                    }
+                    _ => {}
+                }
             }
             6 => {
                 let n = u32::from_be_bytes(read_exact(&mut s, 7)?[3..7].try_into().unwrap()) as usize;
@@ -121,14 +139,14 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>) -> std::io::Result<()> {
 }
 
 /// Listen on `addr` and serve `screen` to every client. Returns the address actually bound.
-pub fn serve(addr: &str, screen: Arc<Screen>) -> std::io::Result<std::net::SocketAddr> {
+pub fn serve(addr: &str, screen: Arc<Screen>, on_tap: OnTap) -> std::io::Result<std::net::SocketAddr> {
     let listener = TcpListener::bind(addr)?;
     let bound = listener.local_addr()?;
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
-            let screen = screen.clone();
+            let (screen, on_tap) = (screen.clone(), on_tap.clone());
             std::thread::spawn(move || {
-                let _ = serve_client(conn, screen);
+                let _ = serve_client(conn, screen, on_tap);
             });
         }
     });
@@ -184,7 +202,7 @@ mod tests {
         let mut f = Frame::white(16, 8);
         f.px[0] = 0;
         let screen = Screen::new(f.clone());
-        let addr = serve("127.0.0.1:0", screen.clone()).unwrap();
+        let addr = serve("127.0.0.1:0", screen.clone(), Arc::new(|_, _| {})).unwrap();
         let (mut v, size) = Viewer::connect(addr);
         assert_eq!(size, (16, 8));
         let full = v.request(false, 16, 8);
@@ -214,5 +232,26 @@ mod tests {
         let before = screen.state.lock().unwrap().0;
         screen.show(f);
         assert_eq!(screen.state.lock().unwrap().0, before);
+    }
+
+    #[test]
+    fn a_press_and_release_close_together_is_a_tap_and_a_drag_is_not() {
+        let taps: Arc<Mutex<Vec<(usize, usize)>>> = Default::default();
+        let t2 = taps.clone();
+        let screen = Screen::new(Frame::white(16, 8));
+        let addr = serve("127.0.0.1:0", screen, Arc::new(move |x, y| t2.lock().unwrap().push((x, y)))).unwrap();
+        let (mut v, _) = Viewer::connect(addr);
+        let pointer = |v: &mut Viewer, mask: u8, x: u16, y: u16| {
+            let mut m = vec![5, mask];
+            m.extend_from_slice(&x.to_be_bytes());
+            m.extend_from_slice(&y.to_be_bytes());
+            v.0.write_all(&m).unwrap();
+        };
+        pointer(&mut v, 1, 700, 300);
+        pointer(&mut v, 0, 705, 302); // a tap, where it began
+        pointer(&mut v, 1, 100, 100);
+        pointer(&mut v, 0, 600, 100); // a drag
+        v.request(false, 16, 8); // the server has handled everything sent before this
+        assert_eq!(*taps.lock().unwrap(), vec![(700, 300)]);
     }
 }

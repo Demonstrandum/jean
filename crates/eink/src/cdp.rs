@@ -75,6 +75,15 @@ impl Browser {
         }
     }
 
+    /// Evaluate a JavaScript expression in the page and return its value (JSON).
+    pub fn evaluate(&mut self, expression: &str) -> Result<Value, String> {
+        let r = self.call("Runtime.evaluate", json!({ "expression": expression, "returnByValue": true }))?;
+        if let Some(e) = r.get("exceptionDetails") {
+            return Err(format!("in the page: {}", e["text"].as_str().unwrap_or("exception")));
+        }
+        Ok(r["result"]["value"].clone())
+    }
+
     /// The page as a PNG, at the device scale set on opening.
     pub fn screenshot(&mut self) -> Result<Vec<u8>, String> {
         let r = self.call("Page.captureScreenshot", json!({ "format": "png" }))?;

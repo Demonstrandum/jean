@@ -57,7 +57,7 @@ fn the_real_display_reaches_a_vnc_viewer_dithered_at_the_remarkables_size() {
     assert!(frame.px[..1872 * 100].iter().any(|&p| p == 0), "the scene reaches the top edge");
 
     let screen: Arc<Screen> = Screen::new(frame.clone());
-    let addr = serve("127.0.0.1:0", screen).unwrap();
+    let addr = serve("127.0.0.1:0", screen, std::sync::Arc::new(|_, _| {})).unwrap();
     let mut s = TcpStream::connect(addr).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
     let mut buf = [0u8; 12];

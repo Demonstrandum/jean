@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +26,10 @@
 #define SOCKET_PATH "/tmp/qtfb.sock"
 #define MESSAGE_INITIALIZE 0
 #define MESSAGE_UPDATE 1
+#define MESSAGE_USERINPUT 4
+#define INPUT_TOUCH_PRESS 0x10
+#define INPUT_TOUCH_RELEASE 0x11
+#define INPUT_TOUCH_UPDATE 0x12
 #define FBFMT_RM2FB 0
 #define UPDATE_ALL 0
 #define UPDATE_PARTIAL 1
@@ -40,6 +45,9 @@ struct client_msg {
 };
 struct init_reply { int shm_key; size_t shm_size; };
 struct server_msg { uint8_t type; struct init_reply init; };
+
+/* what the QTFB server sends back: touches, in the framebuffer's own coordinates (the union starts at offset 4 on 32-bit ARM) */
+struct input_msg { uint8_t type; uint8_t pad[3]; int input_type, dev_id, x, y, d; };
 
 static uint16_t *fb;
 static int qtfb_sock;
@@ -138,6 +146,25 @@ static int request(int fd, int incremental) {
     return write_all(fd, m, sizeof m);
 }
 
+/* Touches from AppLoad become VNC pointer events for the server (button down while the finger is down); eink-serve works out what a tap means. */
+static int pump_touch(int rfb) {
+    struct input_msg m;
+    for (;;) {
+        ssize_t n = recv(qtfb_sock, &m, sizeof m, MSG_DONTWAIT);
+        if (n == 0) exit(0); /* AppLoad closed the window */
+        if (n < 0) return errno == EAGAIN || errno == EWOULDBLOCK ? 0 : -1;
+        if (m.type != MESSAGE_USERINPUT) continue;
+        int down;
+        if (m.input_type == INPUT_TOUCH_PRESS) { down = 1; fprintf(stderr, "jean-view: touch %d,%d\n", m.x, m.y); }
+        else if (m.input_type == INPUT_TOUCH_UPDATE) down = 1;
+        else if (m.input_type == INPUT_TOUCH_RELEASE) down = 0;
+        else continue;
+        if (m.x < 0 || m.y < 0) continue;
+        uint8_t ev[6] = {5, (uint8_t)down, (uint8_t)(m.x >> 8), (uint8_t)m.x, (uint8_t)(m.y >> 8), (uint8_t)m.y};
+        if (write_all(rfb, ev, sizeof ev)) return -1;
+    }
+}
+
 /* one connection's lifetime; returns when the server goes away */
 static void session(int fd) {
     uint8_t buf[64];
@@ -161,6 +188,12 @@ static void session(int fd) {
     if (request(fd, 0)) return;
     uint8_t *row = malloc((size_t)WIDTH * 4);
     for (;;) {
+        for (;;) { /* wait for an update from the server or a touch from AppLoad, whichever comes first */
+            struct pollfd p[2] = {{fd, POLLIN, 0}, {qtfb_sock, POLLIN, 0}};
+            if (poll(p, 2, -1) < 0) goto out;
+            if ((p[1].revents & POLLIN) && pump_touch(fd)) goto out;
+            if (p[0].revents & (POLLIN | POLLHUP | POLLERR)) break;
+        }
         if (read_all(fd, buf, 4) || buf[0] != 0) break;
         int rects = be16(buf + 2);
         for (int i = 0; i < rects; i++) {
