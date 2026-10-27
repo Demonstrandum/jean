@@ -1726,24 +1726,34 @@ function go(id: string, o: { hold?: number } = {}): boolean {
 let frameOpts: { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; beat?: boolean } | null = null, frameHooked = false;
 
 /**
- * The master clock as three hairlines, the way the scheduler counts: the slow slot of the hour (5 min), the beat inside it (30 s), the tick
- * inside that (1 s). A notch marks where each one is. Positions are the scheduler's own slots (floor(now / period)), so what you read ran.
+ * The master clock as squares tiling squares, the way the scheduler counts: the first square is the hour tiled into its slow slots (5 min), the
+ * next is the current slot tiled into its beats (30 s), the last is the current beat tiled into its ticks (1 s). Cells that have come are filled
+ * (inset), the current one is solid and ringed, and its corners lead out to the square that tiles it. Positions are the scheduler's own slots
+ * (floor(now / period)), so what you read ran.
  */
-function beatRuler(x: number, wid: number, now: number): string {
+function beatRuler(x: number, y: number, now: number): string {
   const f = (n: number) => n.toFixed(2);
   const [slow, beat, tick] = [cadence[Tier.Slow], cadence[Tier.Beat], cadence[Tier.Tick]];
-  const rows = [
+  const levels = [
     { n: Math.max(1, Math.round(3_600_000 / slow)), i: Math.floor(now / slow) },
     { n: Math.max(1, Math.round(slow / beat)), i: Math.floor(now / beat) },
     { n: Math.max(1, Math.round(beat / tick)), i: Math.floor(now / tick) },
   ];
-  let lines = "", notches = "";
-  rows.forEach((row, r) => {
-    const y = 4.5 + r * 3.5, cw = wid / row.n, cur = row.i % row.n;
-    lines += `M${f(x)} ${f(y)}h${f(wid)}`;
-    notches += `<rect x="${f(x + cur * cw)}" y="${f(y - 1.25)}" width="${f(Math.max(1.2, cw))}" height="2.5"/>`;
+  const S = 13, gap = 6;
+  let grid = "", fill = "", link = "", prev: [number, number, number, number] | null = null;   // the previous level's current cell: x, y, w, h
+  levels.forEach((lv, k) => {
+    let rows = Math.floor(Math.sqrt(lv.n)); while (lv.n % rows) rows--;   // the squarest exact tiling: 12 = 4x3, 10 = 5x2, 30 = 6x5
+    const cols = lv.n / rows, cw = S / cols, ch = S / rows, x0 = x + k * (S + gap), cur = lv.i % lv.n;
+    grid += `M${f(x0)} ${f(y)}h${S}v${S}h${-S}z`;
+    for (let c = 1; c < cols; c++) grid += `M${f(x0 + c * cw)} ${f(y)}v${S}`;
+    for (let r = 1; r < rows; r++) grid += `M${f(x0)} ${f(y + r * ch)}h${S}`;
+    for (let j = 0; j < cur; j++) fill += `<rect x="${f(x0 + (j % cols) * cw + 0.45)}" y="${f(y + Math.floor(j / cols) * ch + 0.45)}" width="${f(cw - 0.9)}" height="${f(ch - 0.9)}"/>`;
+    const cx = x0 + (cur % cols) * cw, cy = y + Math.floor(cur / cols) * ch;
+    fill += `<rect x="${f(cx)}" y="${f(cy)}" width="${f(cw)}" height="${f(ch)}"/>`;
+    if (prev) link += `M${f(prev[0] + prev[2])} ${f(prev[1])}L${f(x0)} ${f(y)}M${f(prev[0] + prev[2])} ${f(prev[1] + prev[3])}L${f(x0)} ${f(y + S)}`;
+    prev = [cx, cy, cw, ch];
   });
-  return `<path d="${lines}" stroke-width="0.5"/><g fill="currentColor" stroke="none">${notches}</g>`;
+  return `<path d="${grid}" stroke-width="0.4"/><path d="${link}" stroke-width="0.4"/><g fill="currentColor" stroke="none">${fill}</g>`;
 }
 
 /** Draw the drawing-sheet frame: corner targets, sigil clusters in the top corners, zone letters over the grid columns and numbers beside its rows, a terse title block. */
@@ -1800,7 +1810,7 @@ function drawFrame(): void {
       if (frameOpts.beat) {
         // the beat ruler fills the gap between the clock and the right sigils; if the sigils leave no room it is simply not drawn
         const from = gx + hh.w + gapx + mm.w + 12, n = items(frameOpts.tr).length, to = w - 26 - (n ? n * sz + (n - 1) * gap : 0) - 14;
-        if (to - from >= 30) marks += beatRuler(from, Math.min(44, to - from), Date.now());
+        if (to - from >= 51) marks += beatRuler(from, 1, Date.now());
       }
     }
   } else {
