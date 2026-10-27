@@ -378,6 +378,19 @@ fn handle(app: &Arc<App>, mut req: Request) {
                 reply_value(req, if found.is_empty() { 404 } else { 200 }, Value::Array(found.iter().map(|i| i.to_json()).collect()))
             }
         }
+        (false, "/frames") => {
+            // every screen rendered from sample data, as {screen: html}: the equivalence gate for crystallizing compares these
+            let js = match ui::strip_eval("ui.frames()") {
+                Ok(js) => js,
+                Err(e) => return reply(req, 500, json!({ "ok": false, "error": e })),
+            };
+            let _guard = app.change_lock.lock().unwrap();
+            match app.bridge.run(js, Kind::Query) {
+                Ok(res) if res.ok => reply(req, 200, json!({ "ok": true, "frames": res.value.and_then(|v| serde_json::from_str::<Value>(&v).ok()).unwrap_or(Value::Null) })),
+                Ok(res) => reply(req, 200, json!({ "ok": false, "error": res.error.unwrap_or_default() })),
+                Err(e) => reply(req, 503, json!({ "ok": false, "error": e })),
+            }
+        }
         (false, "/selftest") => {
             // show every screen with sample data (?data=empty: with none) and report how each fits (the page rolls the DOM back afterwards)
             let js = match ui::strip_eval(if query_param(query, "data").as_deref() == Some("empty") { "ui.selfTest(true)" } else { "ui.selfTest()" }) {

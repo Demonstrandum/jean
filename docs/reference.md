@@ -1398,6 +1398,20 @@ Show every screen with every key set to its sample value (or, with `empty`, with
 feed arrives) and report how each fits (ok = nothing crowded, dropped or clipped). Your real data and the current screen are put back.
 Call it inside a query or tx so the DOM is restored too.
 
+### `snapshot`
+
+```ts
+snapshot(): string
+```
+
+### `frames`
+
+```ts
+function frames(): Record<string, string>
+```
+
+Every screen as HTML, rendered from each key's sample data: what crystallizing the journal must leave unchanged. The live scene is put back afterwards.
+
 ### `tx`
 
 ```ts
@@ -1451,14 +1465,6 @@ ui.eink() atkinson | ui.eink({algo:"floyd"|"threshold"}) | ui.eink(false) off
 ```ts
 ui.rev()
 ```
-
-### `ui.snapshot`
-
-```ts
-ui.snapshot()
-```
-
-The scene as HTML: what the store keeps as its snapshot cache.
 
 ### `ui.show`
 

@@ -386,6 +386,9 @@ interface ScreenReport { readonly screen: string; readonly ok: boolean; readonly
  * feed arrives) and report how each fits (ok = nothing crowded, dropped or clipped). Your real data and the current screen are put back.
  * Call it inside a query or tx so the DOM is restored too. */
 declare function selfTest(empty?: any): ScreenReport[];
+declare function snapshot(): string;
+/** Every screen as HTML, rendered from each key's sample data: what crystallizing the journal must leave unchanged. The live scene is put back afterwards. */
+declare function frames(): Record<string, string>;
 /** Run fn, then verify(). If fn throws, its changes are rolled back too. */
 declare function tx<T>(fn: () => T): T;
 declare function outline(el?: Element, depth?: any): string;
@@ -621,7 +624,7 @@ declare const ui: {
   eink: typeof eink;
   dither: typeof dither;
   rasterize: typeof rasterize;
-  snapshot(): any;
+  snapshot: typeof snapshot;
   show(...nodes: Child[]): any;
   clear(): any;
   settled(): any;
@@ -658,6 +661,7 @@ declare const ui: {
   screenIds(): any;
   current(): any;
   selfTest: typeof selfTest;
+  frames: typeof frames;
   docs: typeof docs;
   size(w: number, ht: number): any;
   css(text: string): any;

@@ -163,6 +163,21 @@ impl Store {
         Ok(Some(last.seq))
     }
 
+    /// Crystallize: replace every journal entry up to `upto` with one entry holding `source`, which must rebuild the same display on its own
+    /// (the caller proves that first). Later entries stay. Tagged `cp-<seq>`; returns the short commit hash.
+    pub fn collapse(&self, upto: u64, source: &str) -> Result<String> {
+        let covered: Vec<Entry> = self.tail()?.into_iter().filter(|e| e.seq <= upto).collect();
+        let Some(top) = covered.last().map(|e| e.seq) else { return Err(Error(format!("no journal entries up to {upto}"))) };
+        for e in &covered {
+            fs::remove_file(self.journal_path(e.seq))?;
+        }
+        fs::write(self.journal_path(top), source)?;
+        self.git(&["add", "-A"])?;
+        self.git(&["commit", "-q", "-m", &format!("crystallize: {} entries into one\n\nSeq: {top}\nCrystallized: {}", covered.len(), covered.len())])?;
+        self.git(&["tag", "-f", &format!("cp-{top}")])?;
+        self.head().ok_or_else(|| Error("no HEAD after commit".into()))
+    }
+
     /// `snapshot.html` as it was in the commit that recorded `seq`.
     fn snapshot_at(&self, seq: u64) -> Option<String> {
         let hash = self
@@ -294,6 +309,24 @@ mod tests {
     fn accept(store: &Store, src: &str, snapshot: &str) -> String {
         let p = store.begin(src).unwrap();
         store.commit(p, snapshot, &Meta::default()).unwrap()
+    }
+
+    #[test]
+    fn collapse_replaces_the_covered_entries_and_keeps_later_ones() {
+        let t = Tmp::new("collapse");
+        let store = Store::open(&t.0).unwrap();
+        for i in 1..=5 {
+            accept(&store, &format!("change {i}"), &format!("<dom {i}>"));
+        }
+        store.collapse(3, "base of 1..3").unwrap();
+        let tail = store.tail().unwrap();
+        assert_eq!(tail.iter().map(|e| (e.seq, e.source.as_str())).collect::<Vec<_>>(), vec![(3, "base of 1..3"), (4, "change 4"), (5, "change 5")]);
+        assert!(store.git(&["tag", "-l", "cp-3"]).unwrap().contains("cp-3"));
+        // new entries still number on from the highest
+        assert_eq!(store.begin("next").unwrap().seq, 6);
+        // an empty range is an error, not a silent no-op
+        let empty = Tmp::new("collapse-empty");
+        assert!(Store::open(&empty.0).unwrap().collapse(9, "x").is_err());
     }
 
     #[test]

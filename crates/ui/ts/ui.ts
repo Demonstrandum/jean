@@ -2651,6 +2651,24 @@ function selfTest(empty = false): ScreenReport[] {
   return out;
 }
 
+const snapshot = (): string => root.innerHTML.replace(/ data-dropped=""/g, "");
+
+/** Every screen as HTML, rendered from each key's sample data: what crystallizing the journal must leave unchanged. The live scene is put back afterwards. */
+function frames(): Record<string, string> {
+  const saved = new Map(data), prev = currentScreen, out: Record<string, string> = {};
+  for (const k of keyRegistry.values()) if (k.id !== KEY_SCREEN.id && k.id !== KEY_HOLD.id) data.set(k.id, { v: k.sample, ts: 0 });
+  for (const id of [...screenDefs.keys()].sort()) {
+    renderScreen(id);
+    adapt();
+    out[id] = snapshot();
+  }
+  data.clear();
+  for (const [id, d] of saved) data.set(id, d);
+  if (prev !== null && screenDefs.has(prev)) renderScreen(prev); else root.replaceChildren();
+  adapt();
+  return out;
+}
+
 /** Run fn, then verify(). If fn throws, its changes are rolled back too. */
 function tx<T>(fn: () => T): T {
   let v: T;
@@ -2798,7 +2816,7 @@ FALLBACK        ui.h(tag, ...args) and the DOM are always there; lenses: el.word
 const ui = {
   root, screen, h, rev: () => rev, mount, outline, eink, dither, rasterize,
   /** The scene as HTML: what the store keeps as its snapshot cache. */
-  snapshot: () => root.innerHTML.replace(/ data-dropped=""/g, ""), // the fit marker is derived state, not content
+  snapshot, // the fit marker is derived state, not content
   /** Replace the whole scene. Returns the fit report: a scene that doesn't fit must not be shown. */
   show: (...nodes: Child[]) => { root.replaceChildren(frag(nodes)); return fits(); },
   clear: () => { root.replaceChildren(); return root; },
@@ -2830,7 +2848,7 @@ const ui = {
   /** Screens and the tab bar: defineScreen({id, tab, tiles}) go(id) screenOf(id).patchTile(...) screenIds() current() */
   defineScreen, go, screenOf: (id: string): ScreenHandle | undefined => (screenDefs.has(id) ? screenHandle(id) : undefined), screenIds: () => [...screenDefs.keys()], current: () => currentScreen,
   /** Show every screen with sample data and report how each fits (run inside a query so the DOM is restored). */
-  selfTest, docs,
+  selfTest, frames, docs,
   size: (w: number, ht: number) => { screen.style.width = w + "px"; screen.style.height = ht + "px"; adapt(); },
   css: (text: string) => document.head.append(h("style", text)),
   help: () => HELP,
