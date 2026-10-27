@@ -26,6 +26,20 @@ pub enum Action {
 pub const RAIN_WINDOW_MS: u64 = 6 * 3_600_000;
 pub const COLD_BELOW: f64 = 8.0;
 
+/// Turns the motion sensor's "last seen" instant into events: it fires when that instant moves forward, and not for what was already there at start.
+#[derive(Default)]
+pub struct MotionWatch {
+    seen: Option<Option<u64>>,
+}
+
+impl MotionWatch {
+    pub fn observe(&mut self, last: Option<u64>) -> bool {
+        let fired = matches!(self.seen, Some(prev) if last > prev);
+        self.seen = Some(last);
+        fired
+    }
+}
+
 pub struct Triggers {
     pub tz: Tz,
     greeted: Option<NaiveDate>,
@@ -70,6 +84,18 @@ mod tests {
 
     fn tr() -> Triggers {
         Triggers::new(chrono_tz::Europe::London)
+    }
+
+    #[test]
+    fn motion_fires_when_the_last_seen_instant_moves_on_and_not_at_start() {
+        let mut w = MotionWatch::default();
+        assert!(!w.observe(Some(100)), "what was there at start is not news");
+        assert!(!w.observe(Some(100)));
+        assert!(w.observe(Some(200)));
+        assert!(!w.observe(Some(200)));
+        let mut w = MotionWatch::default();
+        assert!(!w.observe(None));
+        assert!(w.observe(Some(5)), "the first ever sighting is news");
     }
 
     #[test]

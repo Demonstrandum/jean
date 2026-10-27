@@ -6,7 +6,7 @@ use crate::audio::Ears;
 use crate::session::Session;
 use crate::stt::Stt;
 use crate::tts::Speaker;
-use crate::triggers::{Action, Event, Outlook, Triggers};
+use crate::triggers::{Action, Event, MotionWatch, Outlook, Triggers};
 use crate::wake::strip_wake;
 
 pub struct Runner<'a> {
@@ -15,6 +15,7 @@ pub struct Runner<'a> {
     pub speaker: &'a dyn Speaker,
     pub session: Session<'a>,
     pub triggers: Triggers,
+    pub motion: MotionWatch,
     /// Phrases that address the assistant; empty means everything heard is for it.
     pub wake: Vec<String>,
 }
@@ -66,6 +67,15 @@ impl<'a> Runner<'a> {
         for t in self.session.tick(now_ms) {
             let what = if t.label.is_empty() { "Your timer".to_string() } else { format!("Your {} timer", t.label) };
             self.say(&format!("{what} is done."));
+        }
+    }
+
+    /// Look at the room's motion sensor (live data `room.motion`) and act on anything new.
+    pub fn watch_sensors(&mut self, now_ms: u64) {
+        let Ok(data) = self.session.display.data() else { return };
+        if self.motion.observe(data["room.motion"]["value"].as_u64()) {
+            let outlook = self.outlook();
+            self.event(Event::Motion, outlook, now_ms);
         }
     }
 
@@ -131,6 +141,7 @@ mod tests {
             speaker: &rec,
             session: Session::new(&llm, &display, &tasks, "m", chrono_tz::Europe::London, "London"),
             triggers: Triggers::new(chrono_tz::Europe::London),
+            motion: MotionWatch::default(),
             wake: vec!["hey claude".into()],
         };
         assert!(!r.hear_once(Duration::ZERO, 1_000).unwrap());
@@ -156,6 +167,7 @@ mod tests {
             speaker: &rec,
             session: Session::new(&llm, &display, &tasks, "m", chrono_tz::Europe::London, "London"),
             triggers: Triggers::new(chrono_tz::Europe::London),
+            motion: MotionWatch::default(),
             wake: vec![],
         };
         r.event(Event::Motion, Some(Outlook { rain_from: None, temp: 2.0 }), 1_793_059_200_000 + 7 * 3_600_000);

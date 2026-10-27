@@ -24,6 +24,10 @@ cargo run -p preview                          # http://127.0.0.1:8788 (scenes) a
 
 Docs: [for the agent](docs/agent.md), [reference](docs/reference.md) (generated), [screens and the tab bar](docs/screens.md), [live data and the refresh clock](docs/live-data.md), [persistence](docs/persistence.md), [autonomy](docs/autonomy.md).
 
+## The assistant
+
+See [docs/harness.md](docs/harness.md): the voice agent, the builder with its sandbox and promotion pipeline, the audit log, scraper repair, journal crystallizing, the e-ink/VNC pipeline, and what is and is not verified.
+
 ## Fonts
 
 All font files are stored with Git LFS (`git lfs install` before cloning, or `git lfs pull` after; the build stops with that hint if it sees a

@@ -426,6 +426,10 @@ declare enum MoonPhase { New = 0, WaxingCrescent = 1, FirstQuarter = 2, WaxingGi
 interface Hour { readonly at: Ms; readonly temp: number; readonly rain: number; readonly uv: number }
 /** A calendar event. `end` is exclusive; an all-day event starts at local midnight. */
 interface CalEvent { readonly id: string; readonly title: string; readonly start: Ms; readonly end: Ms; readonly allDay: boolean }
+/** A light in the room and whether it is on. */
+interface Light { readonly name: string; readonly on: boolean }
+/** A door or window contact sensor: open or closed. */
+interface Contact { readonly name: string; readonly open: boolean }
 /** A unit rate for the half hour starting at `at`, in pence per kWh including VAT. */
 interface Rate { readonly at: Ms; readonly pence: number }
 /** Grid carbon intensity for the half hour starting at `at`, in gCO₂ per kWh. */
@@ -607,6 +611,7 @@ declare const K: {
   notes: { items: Key<Note[]> };
   power: { avg: Key<number | null>; cheap: Key<Span | null>; kind: Key<RateKind>; latest: Key<Ms | null>; max: Key<Peak | null>; min: Key<Peak | null>; nextSlots: Key<Rate[]>; rate: Key<number>; slots: Key<Rate[]>; standing: Key<number>; tariff: Key<string>; updated: Key<Ms>; usageCost: Key<number>; usageDay: Key<Ms | null>; usageKwh: Key<number>; usageSlots: Key<number[]>; week: Key<DayUsage[]> };
   proc: { count: Key<number>; top: Key<Proc[]> };
+  room: { doors: Key<Contact[]>; humidity: Key<number | null>; lights: Key<Light[]>; lux: Key<number | null>; motion: Key<Ms | null>; temp: Key<number | null> };
   shop: { items: Key<Grocery[]> };
   sun: { rise: Key<Ms>; set: Key<Ms> };
   sys: { host: Key<string>; kernel: Key<string>; load: Key<number>; load15: Key<number>; load5: Key<number>; loadHist: Key<LoadHistory>; temp: Key<number>; uptime: Key<number> };

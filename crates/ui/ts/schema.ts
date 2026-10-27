@@ -38,6 +38,10 @@
   interface Hour { readonly at: Ms; readonly temp: number; readonly rain: number; readonly uv: number }
   /** A calendar event. `end` is exclusive; an all-day event starts at local midnight. */
   interface CalEvent { readonly id: string; readonly title: string; readonly start: Ms; readonly end: Ms; readonly allDay: boolean }
+  /** A light in the room and whether it is on. */
+  interface Light { readonly name: string; readonly on: boolean }
+  /** A door or window contact sensor: open or closed. */
+  interface Contact { readonly name: string; readonly open: boolean }
   /** A unit rate for the half hour starting at `at`, in pence per kWh including VAT. */
   interface Rate { readonly at: Ms; readonly pence: number }
   /** Grid carbon intensity for the half hour starting at `at`, in gCO₂ per kWh. */
@@ -196,6 +200,14 @@
       heard: ui.key<string>("claude.heard", "The last thing it heard.", "How long do I boil an egg?"),
       say: ui.key<string>("claude.say", "The last thing it said.", "About six and a half minutes for a jammy yolk."),
       at: ui.key<Ms>("claude.at", "When it last spoke.", now),
+    },
+    room: {
+      temp: ui.key<number | null>("room.temp", "Room temperature, °C (from Home Assistant).", 21.4),
+      humidity: ui.key<number | null>("room.humidity", "Relative humidity in the room, %.", 46),
+      lux: ui.key<number | null>("room.lux", "Light level in the room, lux.", 180),
+      motion: ui.key<Ms | null>("room.motion", "When the motion sensor last saw someone, or null if it has not.", now - 12 * 60_000),
+      lights: ui.key<Light[]>("room.lights", "The lights in the room.", [{ name: "Ceiling", on: true }, { name: "Reading lamp", on: false }, { name: "Shelf", on: true }]),
+      doors: ui.key<Contact[]>("room.doors", "Door and window contact sensors.", [{ name: "Front door", open: false }, { name: "Balcony", open: true }]),
     },
     timer: {
       end: ui.key<Ms | null>("timer.end", "When the running timer rings, or null.", now + 6 * 60_000),

@@ -121,12 +121,13 @@ fn main() {
         });
     }
     let session = Session::new(llm.as_ref(), &display, &tasks, &env("JEAN_MODEL", "claude-haiku-5-5"), tz, &env("JEAN_PLACE", "London"));
-    let mut runner = Runner { ears, stt: stt.as_ref(), speaker: speaker.as_ref(), session, triggers: Triggers::new(tz), wake };
+    let mut runner = Runner { ears, stt: stt.as_ref(), speaker: speaker.as_ref(), session, triggers: Triggers::new(tz), motion: harness::triggers::MotionWatch::default(), wake };
     if !display.healthy() {
         eprintln!("jean: the display is not answering yet; carrying on");
     }
     loop {
         runner.tick(now_ms());
+        runner.watch_sensors(now_ms());
         match runner.hear_once(Duration::from_secs(1), now_ms()) {
             Ok(_) => {}
             Err(e) if e == "end of input" => break,

@@ -2663,6 +2663,28 @@ A calendar event. `end` is exclusive; an all-day event starts at local midnight.
 - `readonly end: Ms;`
 - `readonly allDay: boolean`
 
+### `Light`
+
+```ts
+interface Light
+```
+
+A light in the room and whether it is on.
+
+- `readonly name: string;`
+- `readonly on: boolean`
+
+### `Contact`
+
+```ts
+interface Contact
+```
+
+A door or window contact sensor: open or closed.
+
+- `readonly name: string;`
+- `readonly open: boolean`
+
 ### `Rate`
 
 ```ts
@@ -3661,6 +3683,66 @@ K.claude.at: Key<Ms>
 When it last spoke.
 
 - `id: claude.at`
+
+### `K.room.temp`
+
+```ts
+K.room.temp: Key<number | null>
+```
+
+Room temperature, °C (from Home Assistant).
+
+- `id: room.temp`
+
+### `K.room.humidity`
+
+```ts
+K.room.humidity: Key<number | null>
+```
+
+Relative humidity in the room, %.
+
+- `id: room.humidity`
+
+### `K.room.lux`
+
+```ts
+K.room.lux: Key<number | null>
+```
+
+Light level in the room, lux.
+
+- `id: room.lux`
+
+### `K.room.motion`
+
+```ts
+K.room.motion: Key<Ms | null>
+```
+
+When the motion sensor last saw someone, or null if it has not.
+
+- `id: room.motion`
+
+### `K.room.lights`
+
+```ts
+K.room.lights: Key<Light[]>
+```
+
+The lights in the room.
+
+- `id: room.lights`
+
+### `K.room.doors`
+
+```ts
+K.room.doors: Key<Contact[]>
+```
+
+Door and window contact sensors.
+
+- `id: room.doors`
 
 ### `K.timer.end`
 

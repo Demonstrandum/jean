@@ -19,13 +19,14 @@ pub const SCHEMA: &str = include_str!("../ts/schema.ts");
 
 /// The screens the display starts with, as journaled evals: `(file name, TypeScript)`. The server applies them, one change each,
 /// when the journal is empty; after that the journal is the truth and the agent edits screens with `ui.defineScreen` / `patchTile`.
-pub const SEEDS: [(&str, &str); 7] = [
+pub const SEEDS: [(&str, &str); 8] = [
     ("10-home.ts", include_str!("../seed/10-home.ts")),
     ("20-day.ts", include_str!("../seed/20-day.ts")),
     ("30-weather.ts", include_str!("../seed/30-weather.ts")),
     ("40-system.ts", include_str!("../seed/40-system.ts")),
     ("50-energy.ts", include_str!("../seed/50-energy.ts")),
     ("60-lists.ts", include_str!("../seed/60-lists.ts")),
+    ("65-room.ts", include_str!("../seed/65-room.ts")),
     ("70-claude.ts", include_str!("../seed/70-claude.ts")),
 ];
 

@@ -10,7 +10,7 @@ use crate::tasks::Tasks;
 use crate::timers::Timers;
 
 /// The names of the screens the display ships (a closed set: a request for any other is an error the model can read).
-pub const SCREENS: [&str; 7] = ["home", "day", "weather", "system", "energy", "lists", "claude"];
+pub const SCREENS: [&str; 8] = ["home", "day", "weather", "system", "energy", "lists", "room", "claude"];
 
 pub struct VoiceTools<'a> {
     pub display: &'a Display,
