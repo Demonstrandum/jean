@@ -13,3 +13,5 @@ pub mod tts;
 pub mod wake;
 pub mod prompts;
 pub mod session;
+pub mod triggers;
+pub mod run;

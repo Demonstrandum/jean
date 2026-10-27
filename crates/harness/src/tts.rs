@@ -81,6 +81,12 @@ pub struct Recorder {
     pub said: std::cell::RefCell<Vec<String>>,
 }
 
+impl Recorder {
+    pub fn said(&self) -> Vec<String> {
+        self.said.borrow().clone()
+    }
+}
+
 impl Speaker for Recorder {
     fn speak(&self, text: &str) -> Result<(), String> {
         self.said.borrow_mut().push(text.to_string());
