@@ -163,6 +163,9 @@ impl Crystallizer<'_> {
     }
 }
 
+/// The instant the scratch displays believe it is (2026-02-25 ~08:53 UTC), so sample data and clocks agree between them.
+pub const FROZEN_NOW_MS: u64 = 1_772_000_000_000;
+
 /// The real thing: a display server on a copy of the store, with headless Chrome as its page, asked for `/frames`.
 pub struct ScratchDisplay {
     /// The display server binary and the project root it serves (`preview <addr> <state dir> <root>`).
@@ -196,7 +199,7 @@ impl Frames for ScratchDisplay {
             Command::new(&self.chrome)
                 .args(["--headless=new", "--disable-gpu", "--no-sandbox", "--window-size=1000,800"])
                 .arg(format!("--user-data-dir={}", profile.display()))
-                .arg(format!("{base}/live"))
+                .arg(format!("{base}/live?now={FROZEN_NOW_MS}"))
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()

@@ -13,6 +13,12 @@
 </style>
 <div id="stage"><div id="scaler"><main id="screen"></main></div></div>
 <div id="bar"><span id="st">connecting…</span></div>
+<script>
+  // ?now=<epoch ms> freezes the clock before anything loads: two pages given the same instant render the same sample data
+  // (the crystallize gate compares screens from two such pages).
+  { const t = Number(new URLSearchParams(location.search).get("now"));
+    if (t > 0) { const Real = Date; globalThis.Date = class extends Real { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } }; } }
+</script>
 <script src="/ui.js"></script>
 <script>
   // Nothing is built here. The scene exists only because the store replays its journal into
