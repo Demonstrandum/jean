@@ -2,7 +2,7 @@
 """Weather, sun, moon and air quality from Open-Meteo (free, no key), every 10 min, for the lat/lon in config.json.
 Writes the typed keys in crates/ui/ts/schema.ts (K.wx.*, K.sun.*, K.moon.*, K.air.*): instants are epoch ms, categories are the
 enums in _schema.py (generated from that schema), amounts are numbers. No text is produced for the display to parse."""
-import datetime, json, math, os, time, zoneinfo
+import datetime, json, math, os, time, urllib.request, zoneinfo
 from _lib import ROOT, config, get_json, put, forever, log
 from _schema import Sky, Pollutant
 
@@ -56,6 +56,33 @@ def recall(max_age=12 * 3600):
     return None
 
 
+def met_no(lat, lon):
+    """MET Norway's forecast (free, no key, wants an identifying User-Agent): the fallback while Open-Meteo refuses us (its quota is per day).
+    It has no UV and no rain probability: UV reads 0, and the chance of rain is read off the forecast amount."""
+    req = urllib.request.Request("https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=%.4f&lon=%.4f" % (lat, lon),
+                                 headers={"User-Agent": "jean-display/1.0 github.com/Demonstrandum/jean"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        series = json.load(r)["properties"]["timeseries"]
+    stamp = lambda t: datetime.datetime.fromisoformat(t.replace("Z", "+00:00"))
+    now = series[0]["data"]["instant"]["details"]
+    code = series[0]["data"].get("next_1_hours", {}).get("summary", {}).get("symbol_code", "cloudy")
+    base = code.split("_")[0]
+    sky = (Sky.Storm if "thunder" in base else Sky.Snow if ("snow" in base or "sleet" in base) else Sky.Rain if ("rain" in base or "drizzle" in base)
+           else Sky.Fog if base == "fog" else Sky.Partly if base == "partlycloudy" else Sky.Clear if base in ("clearsky", "fair") else Sky.Cloudy)
+    temp, kmh = now["air_temperature"], now["wind_speed"] * 3.6
+    feels = 13.12 + 0.6215 * temp - 11.37 * kmh ** 0.16 + 0.3965 * temp * kmh ** 0.16 if temp <= 10 and kmh > 4.8 else temp     # wind chill
+    hours = []
+    for e in series[:24]:
+        mm = e["data"].get("next_1_hours", {}).get("details", {}).get("precipitation_amount", 0) or 0
+        hours.append({"at": ms(stamp(e["time"])), "temp": e["data"]["instant"]["details"]["air_temperature"], "rain": min(100, round(mm * 100)), "uv": 0})
+    rain_from = next((h["at"] for i, h in enumerate(hours) if i > 0 and h["rain"] >= 50), None)
+    return {
+        "wx.temp": round(temp, 1), "wx.feels": round(feels, 1), "wx.sky": sky, "wx.wind": round(now["wind_speed"] * 2.23694), "wx.wind_dir": now["wind_from_direction"],
+        "wx.cloud": round(now["cloud_area_fraction"] / 12.5), "wx.pressure": round(now["air_pressure_at_sea_level"]),
+        "wx.hours": hours, "wx.rain_from": rain_from, "wx.uv_day": [0] * len(hours), "wx.uv": 0, "wx.uv_max": 0, "moon.phase": round(moon_phase(), 3),
+    }
+
+
 def ms(dt):
     return int(dt.timestamp() * 1000)
 
@@ -81,7 +108,15 @@ def step():
            "&hourly=temperature_2m,precipitation_probability,uv_index&daily=sunrise,sunset,uv_index_max") % (lat, lon, tzname.replace("/", "%2F"))
     try:
         j = get_json(url)
-    except Exception:
+    except Exception as e:
+        log("open-meteo:", repr(e))
+        try:
+            out = met_no(lat, lon)
+            put(out)
+            remember(out)
+            return
+        except Exception as e2:
+            log("met.no:", repr(e2))
         cached = recall()
         if cached:
             put(cached)                                              # stale beats blank

@@ -41,3 +41,28 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 - Home Assistant: the translation is tested; no instance was reachable.
 - The builder promoting a change automatically (`JEAN_APPROVAL=auto`) has only run against fakes; the live test stops at "needs approval".
 - Sensors beyond Home Assistant (GPIO, I²C) are not written.
+
+## reMarkable 2 as the screen
+
+The tablet runs `jean-view` (`crates/eink/device/jean-view.c`), an AppLoad app: a small VNC client that draws what `eink-serve` sends into AppLoad's framebuffer (QTFB) and forwards touches back as VNC pointer events.
+
+**Mac side** (the tablet is at 10.11.99.1 over USB, the Mac at 10.11.99.8):
+
+```
+cargo run -p preview -- 127.0.0.1:8788 display-state
+cargo run -p eink --bin eink-serve -- --panel rm2-turned-ccw --listen 0.0.0.0:5911
+```
+
+`--panel rm2-turned-ccw` is the tablet held in landscape (`rm2-turned-cw` for the other way). The scene is 800x600 there (4:3, edge to edge: the layout's rows are flexible) and is sent as 16 real grays, dithered *between* the panel's levels with noise that depends only on the pixel's position, so a pixel never depends on its neighbours and only real changes repaint. Updates go out as one small rectangle per changed 64x64 block. `EINK_DEBUG=1` logs how much changes per frame; `--dump out.png` writes the first frame.
+
+**Tablet side** (firmware 3.25.0.119; the versions matter, newer AppLoad builds need Qt 6.10 or hooks this firmware lacks):
+
+- xovi + qt-resource-rebuilder from `asivery/rm-xovi-extensions` tag `v19-23052026`, unpacked in `/home/root/xovi`; `appload.so` **v0.4.2** from `asivery/rm-appload` in `xovi/extensions.d/`.
+- The app: `/home/root/xovi/exthome/appload/jean/{jean-view,external.manifest.json}` (build with `zig cc -target arm-linux-musleabihf -O2 -static -s -o jean-view crates/eink/device/jean-view.c`).
+- xovi is tethered: after a reboot run `/home/root/xovi/start` over ssh (it restarts the UI); AppLoad scans its apps then, so restart it after adding an app. Open AppLoad from the left menu and tap Jean.
+- `IdleSuspendDelay=86400000` in `xochitl.conf` keeps the tablet from sleeping (backup: `/home/root/xochitl.conf.bak`).
+- `JEAN_REFRESH` in the manifest (`content` default, or `ui`, `fast`, `animate`, `ufast`) picks the panel's waveform.
+
+**Touch** is relayed, the page stays display-only: a tap on a tab shows its screen; on home a tap on a tile shows the screen it `opens`; on any other screen a tap goes home; a swipe across the screen steps to the next (left) or previous (right) tab. `eink-serve` maps the touch to the scene, asks the page (`ui.tap`, `ui.step`), switches it with `ui.go` and sends the new frame at once. `crates/eink/tools/touch_probe.py` plays the tablet's part against a running `eink-serve` and times each response (about half a second).
+
+Weather comes from Open-Meteo, with MET Norway as the fallback when its daily quota is spent, the last good reading kept on disk, and sunrise/sunset computed locally so the day dial never depends on the network.
