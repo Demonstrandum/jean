@@ -35,7 +35,7 @@ fn now_ms() -> u64 {
 }
 
 fn main() {
-    let llm: Box<dyn Llm + Sync> = if env("JEAN_LLM", "api") == "cli" {
+    let llm: Box<dyn Llm + Sync> = if env("JEAN_LLM", "api") == "cli" || std::env::args().nth(1).as_deref() == Some("tasks") {
         Box::new(ClaudeCli { bin: env("JEAN_CLAUDE_BIN", "claude"), model: std::env::var("JEAN_CLI_MODEL").ok() })
     } else {
         Box::new(Anthropic::from_env().unwrap_or_else(|e| {

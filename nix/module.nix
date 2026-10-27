@@ -42,7 +42,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    users.users.display = { isSystemUser = true; group = "display"; home = cfg.root; createHome = true; extraGroups = [ "video" "input" "render" ]; shell = pkgs.bashInteractive; };
+    users.users.display = { isSystemUser = true; group = "display"; home = cfg.root; createHome = true; extraGroups = [ "video" "input" "render" ] ++ lib.optional cfg.agent.enable "audio"; shell = pkgs.bashInteractive; };
     users.groups.display = { };
 
     systemd.services.display-server = {
@@ -114,8 +114,6 @@ in
         RestartSec = 3;
       };
     };
-    hardware.pulseaudio.enable = lib.mkDefault false;
-    users.users.display.extraGroups = lib.mkIf cfg.agent.enable [ "audio" ];
 
     # --- the panel -----------------------------------------------------------------------------------------------------------------
     systemd.services.eink-serve = lib.mkIf cfg.panel.enable {
