@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use eink::cdp::{find_chrome, Browser};
 use eink::rfb::{serve, Screen};
-use eink::{capture, Frame, Panel, SCENE};
+use eink::{capture, Frame, Panel};
 
 fn main() {
     let mut a = std::env::args().skip(1);
@@ -33,7 +33,7 @@ fn main() {
         }
     }
     let chrome = chrome.expect("no Chrome found; pass --chrome");
-    let mut browser = Browser::open(&chrome, &format!("{display}/live?panel"), SCENE, panel.scale()).expect("cannot open the display page");
+    let mut browser = Browser::open(&chrome, &panel.page(&display), panel.scene(), panel.scale()).expect("cannot open the display page");
     std::thread::sleep(Duration::from_secs(2));
     let first = capture(&mut browser, panel).expect("first screenshot");
     let screen: Arc<Screen> = Screen::new(first);

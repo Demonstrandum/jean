@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use eink::cdp::{find_chrome, Browser};
 use eink::rfb::{serve, Screen};
-use eink::{capture, Panel, SCENE};
+use eink::{capture, Panel};
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -39,7 +39,7 @@ fn the_real_display_reaches_a_vnc_viewer_dithered_at_the_remarkables_size() {
         std::thread::sleep(Duration::from_millis(250));
     }
     let panel = Panel::Remarkable2Landscape;
-    let mut browser = Browser::open(&chrome, &format!("{base}/live?panel"), SCENE, panel.scale()).unwrap();
+    let mut browser = Browser::open(&chrome, &panel.page(&base), panel.scene(), panel.scale()).unwrap();
     // wait for the seeds to be replayed into the page, then capture
     for _ in 0..60 {
         if ureq::get(&format!("{base}/status")).call().ok().and_then(|r| r.into_json::<serde_json::Value>().ok()).is_some_and(|s| s["connected"] == true && s["replay"]["replayed"].as_u64().unwrap_or(0) >= 7) {
@@ -53,8 +53,8 @@ fn the_real_display_reaches_a_vnc_viewer_dithered_at_the_remarkables_size() {
     assert!(frame.px.iter().all(|&p| p == 0 || p == 255), "only black and white");
     let black = frame.px.iter().filter(|&&p| p == 0).count() as f64 / frame.px.len() as f64;
     assert!((0.03..0.6).contains(&black), "the dense black-on-white scene should be some tens of percent black, not {black}");
-    // the margins above and below the 1123-pixel-high scene are white
-    assert!(frame.px[..1872 * 100].iter().all(|&p| p == 255));
+    // the 4:3 scene fills the panel: the top rows are the sheet's frame, not a white margin
+    assert!(frame.px[..1872 * 100].iter().any(|&p| p == 0), "the scene reaches the top edge");
 
     let screen: Arc<Screen> = Screen::new(frame.clone());
     let addr = serve("127.0.0.1:0", screen).unwrap();

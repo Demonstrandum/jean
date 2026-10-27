@@ -6,7 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use crate::{damage, Frame, Rect};
+use crate::{damage_rects, Frame, Rect};
 
 /// The frame being shown, and a version that moves whenever it changes.
 pub struct Screen {
@@ -89,21 +89,18 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>) -> std::io::Result<()> {
                 }
                 let (version, frame) = (st.0, st.1.clone());
                 drop(st);
-                let rect = match (&had, incremental) {
-                    (Some((_, old)), true) => damage(old, &frame),
-                    _ => Some(Rect { x: 0, y: 0, w: frame.w, h: frame.h }),
+                let rects = match (&had, incremental) {
+                    (Some((_, old)), true) => damage_rects(old, &frame),
+                    _ => vec![Rect { x: 0, y: 0, w: frame.w, h: frame.h }],
                 };
                 let mut msg = vec![0, 0];
-                match rect {
-                    Some(r) => {
-                        msg.extend_from_slice(&1u16.to_be_bytes());
-                        for v in [r.x, r.y, r.w, r.h] {
-                            msg.extend_from_slice(&(v as u16).to_be_bytes());
-                        }
-                        msg.extend_from_slice(&0i32.to_be_bytes()); // Raw
-                        msg.extend_from_slice(&raw(&frame, r));
+                msg.extend_from_slice(&(rects.len() as u16).to_be_bytes());
+                for r in rects {
+                    for v in [r.x, r.y, r.w, r.h] {
+                        msg.extend_from_slice(&(v as u16).to_be_bytes());
                     }
-                    None => msg.extend_from_slice(&0u16.to_be_bytes()),
+                    msg.extend_from_slice(&0i32.to_be_bytes()); // Raw
+                    msg.extend_from_slice(&raw(&frame, r));
                 }
                 s.write_all(&msg)?;
                 had = Some((version, frame));

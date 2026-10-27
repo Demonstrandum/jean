@@ -46,6 +46,36 @@ pub fn damage(a: &Frame, b: &Frame) -> Option<Rect> {
     (x0 != usize::MAX).then(|| Rect { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 })
 }
 
+/// What changed, as one box per 64x64 block that differs (the tight box of the differing pixels within it), so that two distant changes (the
+/// seconds, a graph) are two small updates and not one box over everything between them.
+pub fn damage_rects(a: &Frame, b: &Frame) -> Vec<Rect> {
+    assert_eq!((a.w, a.h), (b.w, b.h));
+    const T: usize = 64;
+    let mut out = Vec::new();
+    for ty in (0..a.h).step_by(T) {
+        for tx in (0..a.w).step_by(T) {
+            let (x1, y1) = ((tx + T).min(a.w), (ty + T).min(a.h));
+            let (mut bx0, mut by0, mut bx1, mut by1) = (usize::MAX, usize::MAX, 0, 0);
+            for y in ty..y1 {
+                let (ra, rb) = (&a.px[y * a.w + tx..y * a.w + x1], &b.px[y * a.w + tx..y * a.w + x1]);
+                if ra == rb {
+                    continue;
+                }
+                let first = ra.iter().zip(rb).position(|(p, q)| p != q).unwrap();
+                let last = ra.iter().zip(rb).rposition(|(p, q)| p != q).unwrap();
+                bx0 = bx0.min(tx + first);
+                bx1 = bx1.max(tx + last);
+                by0 = by0.min(y);
+                by1 = by1.max(y);
+            }
+            if bx0 != usize::MAX {
+                out.push(Rect { x: bx0, y: by0, w: bx1 - bx0 + 1, h: by1 - by0 + 1 });
+            }
+        }
+    }
+    out
+}
+
 /// The panel the scene is shown on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
@@ -82,6 +112,21 @@ impl Panel {
         }
     }
 
+    /// The scene's size for this panel, in CSS pixels: the design's 800x480, or 800x600 on the reMarkable 2 so that it is 4:3 like the panel and
+    /// fills it edge to edge (the layout's rows are flexible; nothing is stretched).
+    pub fn scene(self) -> (usize, usize) {
+        match self {
+            Panel::Native => SCENE,
+            _ => (SCENE.0, 600),
+        }
+    }
+
+    /// The display page to hold open for this panel.
+    pub fn page(self, display: &str) -> String {
+        let (w, h) = self.scene();
+        format!("{display}/live?panel&size={w}x{h}")
+    }
+
     /// The factor the scene is rendered at so it fills the panel's width (rendering at the target scale, not stretching afterwards, keeps text sharp).
     pub fn scale(self) -> f64 {
         self.laid_out_on().size().0 as f64 / SCENE.0 as f64
@@ -108,7 +153,7 @@ pub fn compose(gray: &[u8], rw: usize, rh: usize, panel: Panel) -> Frame {
         Panel::Remarkable2TurnedCcw => (turn(&canvas, pw, ph, false), ph, pw),
         _ => (canvas, pw, ph),
     };
-    dither::atkinson(&canvas, w, h)
+    dither::atkinson_blocks(&canvas, w, h)
 }
 
 /// A quarter turn of a `w x h` image: clockwise or anticlockwise; the result is `h x w`.
@@ -169,16 +214,19 @@ mod tests {
     }
 
     #[test]
-    fn the_scene_fills_the_remarkables_width_and_sits_centred() {
+    fn the_remarkables_scene_is_four_by_three_and_fills_the_panel_edge_to_edge() {
         assert_eq!(Panel::Remarkable2Landscape.size(), (1872, 1404));
+        assert_eq!(Panel::Native.scene(), (800, 480));
         let s = Panel::Remarkable2Landscape.scale();
         assert!((s - 2.34).abs() < 1e-9);
-        let rendered = ((800.0 * s) as usize, (480.0 * s) as usize);
-        assert_eq!(rendered, (1872, 1123));
-        assert_eq!(Panel::Remarkable2Landscape.place(rendered), (0, 140));
+        let scene = Panel::Remarkable2Landscape.scene();
+        let rendered = ((scene.0 as f64 * s) as usize, (scene.1 as f64 * s) as usize);
+        assert_eq!(rendered, (1872, 1404));
+        assert_eq!(Panel::Remarkable2Landscape.place(rendered), (0, 0));
+        assert_eq!(Panel::Remarkable2Landscape.page("http://d"), "http://d/live?panel&size=800x600");
         let f = compose(&vec![0; rendered.0 * rendered.1], rendered.0, rendered.1, Panel::Remarkable2Landscape);
         assert_eq!((f.w, f.h), (1872, 1404));
-        assert_eq!(f.px[0], 255, "the margin is white");
+        assert_eq!(f.px[0], 0, "no margin: the scene reaches the corner");
         assert_eq!(f.px[700 * 1872 + 900], 0, "the scene is black where it was");
     }
 
@@ -194,15 +242,25 @@ mod tests {
         assert_eq!(ccw[2 * 2], 0);
         // and a scene whose top-left is black shows black in the portrait frame's top-right (clockwise)
         let s = Panel::Remarkable2TurnedCw.scale();
-        let (rw, rh) = ((800.0 * s) as usize, (480.0 * s) as usize);
+        let scene = Panel::Remarkable2TurnedCw.scene();
+        let (rw, rh) = ((scene.0 as f64 * s) as usize, (scene.1 as f64 * s) as usize);
         let mut g = vec![255u8; rw * rh];
-        g[0] = 0;
         for y in 0..40 { for x in 0..40 { g[y * rw + x] = 0; } }
         let f = compose(&g, rw, rh, Panel::Remarkable2TurnedCw);
         assert_eq!((f.w, f.h), (1404, 1872));
-        let oy = 140; // the scene sits 140 px down the landscape canvas, which is 140 px in from the portrait frame's right edge
-        assert_eq!(f.px[20 * 1404 + (1404 - 1 - oy - 20)], 0);
+        assert_eq!(f.px[20 * 1404 + (1404 - 1 - 20)], 0);
         assert_eq!(f.px[20 * 1404 + 20], 255);
+    }
+
+    #[test]
+    fn distant_changes_are_separate_small_updates() {
+        let a = Frame::white(200, 200);
+        let mut b = a.clone();
+        b.px[3 * 200 + 5] = 0;
+        b.px[190 * 200 + 190] = 0;
+        let r = damage_rects(&a, &b);
+        assert_eq!(r, vec![Rect { x: 5, y: 3, w: 1, h: 1 }, Rect { x: 190, y: 190, w: 1, h: 1 }]);
+        assert!(damage_rects(&a, &a).is_empty());
     }
 
     #[test]

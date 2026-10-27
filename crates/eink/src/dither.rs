@@ -23,6 +23,27 @@ pub fn atkinson(gray: &[u8], w: usize, h: usize) -> crate::Frame {
     crate::Frame { w, h, px: lum.iter().map(|&v| if v < 128.0 { 0 } else { 255 }).collect() }
 }
 
+/// Atkinson in independent 64x64 blocks. Error diffusion over a whole frame makes one changed pixel re-roll every dot after it, so a ticking
+/// seconds glyph would repaint the gradients below it; with the error reset at each block, only the blocks whose input changed change.
+pub fn atkinson_blocks(gray: &[u8], w: usize, h: usize) -> crate::Frame {
+    const T: usize = 64;
+    let mut px = vec![255u8; w * h];
+    for ty in (0..h).step_by(T) {
+        for tx in (0..w).step_by(T) {
+            let (bw, bh) = ((w - tx).min(T), (h - ty).min(T));
+            let mut block = Vec::with_capacity(bw * bh);
+            for y in 0..bh {
+                block.extend_from_slice(&gray[(ty + y) * w + tx..(ty + y) * w + tx + bw]);
+            }
+            let out = atkinson(&block, bw, bh);
+            for y in 0..bh {
+                px[(ty + y) * w + tx..(ty + y) * w + tx + bw].copy_from_slice(&out.px[y * bw..(y + 1) * bw]);
+            }
+        }
+    }
+    crate::Frame { w, h, px }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,5 +64,16 @@ mod tests {
         let light = atkinson(&vec![230; 64 * 64], 64, 64).px.iter().filter(|&&p| p == 0).count();
         let dark = atkinson(&vec![25; 64 * 64], 64, 64).px.iter().filter(|&&p| p == 0).count();
         assert!(light < 64 * 64 / 4 && dark > 64 * 64 * 3 / 4);
+    }
+
+    #[test]
+    fn a_change_in_one_block_leaves_the_others_alone() {
+        let (w, h) = (192, 128);
+        let mut gray: Vec<u8> = (0..w * h).map(|i| ((i % w) * 255 / w) as u8).collect();
+        let before = atkinson_blocks(&gray, w, h);
+        gray[30 * w + 30] = 255; // one pixel in the top-left block (a dark patch of the gradient)
+        let after = atkinson_blocks(&gray, w, h);
+        let changed = crate::damage_rects(&before, &after);
+        assert!(!changed.is_empty() && changed.iter().all(|r| r.x + r.w <= 64 && r.y + r.h <= 64), "{changed:?}");
     }
 }

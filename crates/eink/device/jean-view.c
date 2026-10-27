@@ -163,7 +163,6 @@ static void session(int fd) {
     for (;;) {
         if (read_all(fd, buf, 4) || buf[0] != 0) break;
         int rects = be16(buf + 2);
-        int minx = WIDTH, miny = HEIGHT, maxx = 0, maxy = 0;
         for (int i = 0; i < rects; i++) {
             uint8_t h[12];
             if (read_all(fd, h, 12)) goto out;
@@ -175,12 +174,8 @@ static void session(int fd) {
                 uint16_t *dst = fb + (size_t)(y + yy) * WIDTH + x;
                 for (int xx = 0; xx < w; xx++) dst[xx] = row[xx * 4] >= 128 ? 0xFFFF : 0x0000;
             }
-            if (x < minx) minx = x;
-            if (y < miny) miny = y;
-            if (x + w > maxx) maxx = x + w;
-            if (y + ht > maxy) maxy = y + ht;
+            qtfb_update(UPDATE_PARTIAL, x, y, w, ht); /* each rectangle on its own: two distant changes are not one big refresh */
         }
-        if (rects) qtfb_update(UPDATE_PARTIAL, minx, miny, maxx - minx, maxy - miny);
         if (request(fd, 1)) break;
     }
 out:

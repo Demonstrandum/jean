@@ -29,6 +29,8 @@
   // this page, and every later change arrives through /poll, one verified eval at a time.
   const sp = new URLSearchParams(location.search);
   if (sp.has("panel")) document.documentElement.classList.add("panel");
+  // ?size=WxH: a scene of another size (the reMarkable 2's is 800x600, 4:3 like the panel); the layout's rows are flexible
+  { const m = /^(\d+)x(\d+)$/.exec(sp.get("size") || ""); if (m) { ui.screen.style.width = m[1] + "px"; ui.screen.style.height = m[2] + "px"; } }
   if (sp.has("eink")) ui.eink({ algo: sp.get("eink") || "atkinson" });
 
   const stage = document.getElementById("stage"), scaler = document.getElementById("scaler");
