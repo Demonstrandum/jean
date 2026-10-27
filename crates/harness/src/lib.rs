@@ -4,3 +4,10 @@
 pub mod agent;
 pub mod claude;
 pub mod display;
+pub mod tasks;
+pub mod timers;
+pub mod voice_tools;
+pub mod audio;
+pub mod stt;
+pub mod tts;
+pub mod wake;
