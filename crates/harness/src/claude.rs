@@ -109,6 +109,70 @@ impl Llm for Anthropic {
     }
 }
 
+/// A model reached through the `claude` command-line program (`claude -p`), for machines with a login but no API key. It has no native tool calls,
+/// so the tools and the conversation are written into the prompt and the model answers with one JSON object: `{"text": "...", "tool_uses": [{"name": "...", "input": {...}}]}`.
+pub struct ClaudeCli {
+    pub bin: String,
+    pub model: Option<String>,
+}
+
+impl ClaudeCli {
+    fn prompt(req: &Request) -> String {
+        let mut p = format!("{}\n\nYou may call these tools (JSON schemas):\n", req.system);
+        for t in &req.tools {
+            p.push_str(&format!("- {}: {} schema={}\n", t.name, t.description, t.input_schema));
+        }
+        p.push_str("\nReply with ONE JSON object and nothing else: {\"text\": \"what to say, or empty\", \"tool_uses\": [{\"name\": \"...\", \"input\": {...}}]}. Use tool_uses to act; once the tool results are in, give the final words, which must not be empty, in text with no tool_uses.\n\nConversation so far:\n");
+        for m in &req.messages {
+            let who = if m.role == Role::User { "USER" } else { "YOU" };
+            for b in &m.content {
+                match b {
+                    Block::Text { text } => p.push_str(&format!("{who}: {text}\n")),
+                    Block::ToolUse { name, input, .. } => p.push_str(&format!("YOU CALLED {name} {input}\n")),
+                    Block::ToolResult { content, is_error, .. } => p.push_str(&format!("TOOL RESULT{}: {content}\n", if *is_error { " (error)" } else { "" })),
+                }
+            }
+        }
+        p
+    }
+
+    /// The first complete JSON object in the model's reply.
+    fn object(reply: &str) -> Option<Value> {
+        let start = reply.find('{')?;
+        serde_json::Deserializer::from_str(&reply[start..]).into_iter::<Value>().next()?.ok()
+    }
+}
+
+impl Llm for ClaudeCli {
+    fn complete(&self, req: &Request) -> Result<Response, String> {
+        let mut c = std::process::Command::new(&self.bin);
+        c.args(["-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]);
+        if let Some(m) = &self.model {
+            c.args(["--model", m]);
+        }
+        let mut child = c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().map_err(|e| format!("cannot run {}: {e}", self.bin))?;
+        std::io::Write::write_all(&mut child.stdin.take().unwrap(), Self::prompt(req).as_bytes()).map_err(|e| e.to_string())?;
+        let out = child.wait_with_output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(format!("{} failed: {}", self.bin, String::from_utf8_lossy(&out.stderr).trim()));
+        }
+        let wrapper: Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("bad output from {}: {e}", self.bin))?;
+        let reply = wrapper["result"].as_str().ok_or("no result in the reply")?;
+        let Some(obj) = Self::object(reply) else {
+            return Ok(Response { content: vec![Block::Text { text: reply.trim().to_string() }], stop_reason: "end_turn".into() });
+        };
+        let mut content = Vec::new();
+        if let Some(t) = obj["text"].as_str().filter(|t| !t.is_empty()) {
+            content.push(Block::Text { text: t.to_string() });
+        }
+        let uses = obj["tool_uses"].as_array().cloned().unwrap_or_default();
+        for (i, u) in uses.iter().enumerate() {
+            content.push(Block::ToolUse { id: format!("cli-{}-{i}", req.messages.len()), name: u["name"].as_str().unwrap_or("").to_string(), input: u["input"].clone() });
+        }
+        Ok(Response { content, stop_reason: if uses.is_empty() { "end_turn" } else { "tool_use" }.into() })
+    }
+}
+
 #[cfg(test)]
 pub mod testing {
     use super::*;

@@ -1,5 +1,5 @@
 //! The assistant. Configured by environment:
-//!   ANTHROPIC_API_KEY   required
+//!   ANTHROPIC_API_KEY   required, unless JEAN_LLM=cli (then the logged-in `claude` program is the model; JEAN_CLI_MODEL optional)
 //!   JEAN_DISPLAY        display server (default http://127.0.0.1:8788)
 //!   JEAN_MODE           `text` (read lines from stdin, print answers) or `voice` (microphone, whisper, speaker)
 //!   JEAN_MODEL          the voice agent's model (default claude-haiku-5-5)
@@ -12,7 +12,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use harness::audio::{Ears, SoxEars, TextEars};
-use harness::claude::Anthropic;
+use harness::claude::{Anthropic, ClaudeCli, Llm};
 use harness::display::Display;
 use harness::run::Runner;
 use harness::session::Session;
@@ -30,10 +30,14 @@ fn now_ms() -> u64 {
 }
 
 fn main() {
-    let llm = Anthropic::from_env().unwrap_or_else(|e| {
-        eprintln!("jean: {e}");
-        std::process::exit(2)
-    });
+    let llm: Box<dyn Llm> = if env("JEAN_LLM", "api") == "cli" {
+        Box::new(ClaudeCli { bin: env("JEAN_CLAUDE_BIN", "claude"), model: std::env::var("JEAN_CLI_MODEL").ok() })
+    } else {
+        Box::new(Anthropic::from_env().unwrap_or_else(|e| {
+            eprintln!("jean: {e}");
+            std::process::exit(2)
+        }))
+    };
     let display = Display::new(env("JEAN_DISPLAY", "http://127.0.0.1:8788"));
     let data = std::path::PathBuf::from(env("JEAN_DATA", "harness-state"));
     let tasks = Tasks::open(data.join("tasks")).expect("cannot open the task queue");
@@ -59,7 +63,7 @@ fn main() {
     let ears: Box<dyn Ears> = if voice { Box::new(SoxEars::new(data.join("heard"))) } else { Box::new(TextEars::new(data.join("heard"))) };
     let wake: Vec<String> = env("JEAN_WAKE", if voice { "hey claude,hey jean" } else { "" }).split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
 
-    let session = Session::new(&llm, &display, &tasks, &env("JEAN_MODEL", "claude-haiku-5-5"), tz, &env("JEAN_PLACE", "London"));
+    let session = Session::new(llm.as_ref(), &display, &tasks, &env("JEAN_MODEL", "claude-haiku-5-5"), tz, &env("JEAN_PLACE", "London"));
     let mut runner = Runner { ears, stt: stt.as_ref(), speaker: speaker.as_ref(), session, triggers: Triggers::new(tz), wake };
     if !display.healthy() {
         eprintln!("jean: the display is not answering yet; carrying on");
