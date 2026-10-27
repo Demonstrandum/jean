@@ -15,3 +15,6 @@ pub mod prompts;
 pub mod session;
 pub mod triggers;
 pub mod run;
+pub mod sandbox;
+pub mod builder;
+pub mod audit;
