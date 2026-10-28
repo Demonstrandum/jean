@@ -104,10 +104,9 @@ static void qtfb_update(int type, int x, int y, int w, int h) {
     send(qtfb_sock, &m, sizeof m, 0);
 }
 
-/* How the panel refreshes what we draw. A tick changes a few tiny patches (the seconds, a percentage): those want a fast waveform, which drives only
- * those pixels and does not flash. A new screen or a big change wants the slow, faithful one (content: accurate grays). So the mode is chosen per frame
- * from how much changed:  JEAN_REFRESH      the mode for big changes:  ufast | fast | animate | content (default) | ui
- *                         JEAN_TICK_REFRESH the mode for small ones (default fast); JEAN_SMALL = pixels below which a frame is small (default 12000). */
+/* How the panel refreshes what we draw. By default we say nothing and the panel uses its own (the "UI" waveform). To experiment, set in the manifest:
+ *   JEAN_REFRESH       the mode for every update (or for big ones, if JEAN_TICK_REFRESH is also set):  ufast | fast | animate | content | ui
+ *   JEAN_TICK_REFRESH  the mode for small frames, below JEAN_SMALL pixels changed (default 12000). */
 static int parse_mode(const char *name, int otherwise) {
     if (!name) return otherwise;
     if (!strcmp(name, "ufast")) return REFRESH_MODE_UFAST;
@@ -221,7 +220,7 @@ static void session(int fd) {
     fprintf(stderr, "jean-view: connected\n");
     if (request(fd, 0)) return;
     uint8_t *row = malloc((size_t)WIDTH * 4);
-    const int big_mode = parse_mode(getenv("JEAN_REFRESH"), REFRESH_MODE_CONTENT), small_mode = parse_mode(getenv("JEAN_TICK_REFRESH"), REFRESH_MODE_FAST);
+    const int big_mode = parse_mode(getenv("JEAN_REFRESH"), -1), small_mode = parse_mode(getenv("JEAN_TICK_REFRESH"), big_mode);
     const long small_area = getenv("JEAN_SMALL") ? atol(getenv("JEAN_SMALL")) : 12000;
     static int rx[4096], ry[4096], rw[4096], rh[4096];
     for (;;) {
@@ -249,7 +248,7 @@ static void session(int fd) {
             if (kept < 4096) { rx[kept] = x; ry[kept] = y; rw[kept] = w; rh[kept] = ht; kept++; }
         }
         if (kept) {
-            set_refresh_mode(area <= small_area ? small_mode : big_mode);
+            if (big_mode >= 0) set_refresh_mode(area <= small_area ? small_mode : big_mode);
             for (int i = 0; i < kept; i++) qtfb_update(UPDATE_PARTIAL, rx[i], ry[i], rw[i], rh[i]); /* each rectangle on its own */
         }
         if (request(fd, 1)) break;
@@ -267,7 +266,7 @@ int main(void) {
         return 1;
     }
     qtfb_connect((unsigned int)strtoul(key, NULL, 10));
-    set_refresh_mode(parse_mode(getenv("JEAN_REFRESH"), REFRESH_MODE_CONTENT));
+    if (parse_mode(getenv("JEAN_REFRESH"), -1) >= 0) set_refresh_mode(parse_mode(getenv("JEAN_REFRESH"), -1));
     for (size_t i = 0; i < (size_t)WIDTH * HEIGHT; i++) fb[i] = 0xFFFF;
     qtfb_update(UPDATE_ALL, 0, 0, 0, 0);
     for (;;) {

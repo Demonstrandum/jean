@@ -121,10 +121,11 @@ impl Panel {
         }
     }
 
-    /// Whether the panel is shown in 1 bit (dithered) or in 16 gray levels. The reMarkable 2's glass is 16-level grayscale: dithered dots that are re-driven
-    /// on every repaint flash dark and contrasty, real grays do not, so the quarter-turned panels (the AppLoad viewer's) are grayscale.
+    /// Whether the panel is shown in 1 bit (dithered). All of them are: the dither is local (see `dither::atkinson_blocks`), so a change in one place
+    /// never re-rolls the dots somewhere else. (Straight 16-gray output, `dither::levels16`, is kept for a viewer that wants it, but it looked
+    /// worse on the reMarkable than the dithered gradients, so nothing uses it.)
     pub fn dithered(self) -> bool {
-        !matches!(self, Panel::Remarkable2TurnedCw | Panel::Remarkable2TurnedCcw)
+        true
     }
 
     /// The scene's size for this panel, in CSS pixels: the design's 800x480, or 800x600 on the reMarkable 2 so that it is 4:3 like the panel and
