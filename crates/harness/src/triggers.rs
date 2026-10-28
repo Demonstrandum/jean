@@ -26,7 +26,12 @@ pub enum Action {
 pub const RAIN_WINDOW_MS: u64 = 6 * 3_600_000;
 pub const COLD_BELOW: f64 = 8.0;
 
-/// Turns the motion sensor's "last seen" instant into events: it fires when that instant moves forward, and not for what was already there at start.
+/// How long the room has to be still before the next motion counts as someone arriving: while the sensor stays on, its "last seen" instant keeps moving
+/// forward with every poll, and that is one event, not one per poll.
+pub const MOTION_QUIET_MS: u64 = 60_000;
+
+/// Turns the motion sensor's "last seen" instant into events: it fires when that instant moves forward after the room had been still, and not for what
+/// was already there at start.
 #[derive(Default)]
 pub struct MotionWatch {
     seen: Option<Option<u64>>,
@@ -34,7 +39,11 @@ pub struct MotionWatch {
 
 impl MotionWatch {
     pub fn observe(&mut self, last: Option<u64>) -> bool {
-        let fired = matches!(self.seen, Some(prev) if last > prev);
+        let fired = match (self.seen, last) {
+            (Some(None), Some(_)) => true, // the first sighting ever
+            (Some(Some(prev)), Some(now)) => now.saturating_sub(prev) >= MOTION_QUIET_MS,
+            _ => false,
+        };
         self.seen = Some(last);
         fired
     }
@@ -89,10 +98,14 @@ mod tests {
     #[test]
     fn motion_fires_when_the_last_seen_instant_moves_on_and_not_at_start() {
         let mut w = MotionWatch::default();
-        assert!(!w.observe(Some(100)), "what was there at start is not news");
-        assert!(!w.observe(Some(100)));
-        assert!(w.observe(Some(200)));
-        assert!(!w.observe(Some(200)));
+        let t = 1_793_000_000_000u64;
+        assert!(!w.observe(Some(t)), "what was there at start is not news");
+        assert!(!w.observe(Some(t)));
+        assert!(w.observe(Some(t + 200_000)), "someone arrives after the room had been still");
+        assert!(!w.observe(Some(t + 205_000)), "the sensor staying on keeps moving the instant forward: still one event");
+        assert!(!w.observe(Some(t + 210_000)));
+        assert!(!w.observe(Some(t + 210_000)));
+        assert!(w.observe(Some(t + 400_000)), "the next arrival is a new event");
         let mut w = MotionWatch::default();
         assert!(!w.observe(None));
         assert!(w.observe(Some(5)), "the first ever sighting is news");

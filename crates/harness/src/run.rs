@@ -73,18 +73,32 @@ impl<'a> Runner<'a> {
 
     /// Look at the room's motion sensor (live data `room.motion`) and act on anything new.
     pub fn watch_sensors(&mut self, now_ms: u64) {
-        let Ok(data) = self.session.display.data() else { return };
+        let data = match self.session.display.data() {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("jean: cannot read the display's data: {e}");
+                return;
+            }
+        };
         if self.motion.observe(data["room.motion"]["value"].as_u64()) {
             let outlook = self.outlook();
+            eprintln!("jean: motion in the room (outlook {outlook:?})");
             self.event(Event::Motion, outlook, now_ms);
         }
     }
 
     /// An event from a sensor: whatever the rules do about it is spoken.
     pub fn event(&mut self, ev: Event, outlook: Option<Outlook>, now_ms: u64) {
-        for a in self.triggers.on(ev, outlook, now_ms) {
+        let actions = self.triggers.on(ev, outlook, now_ms);
+        if actions.is_empty() {
+            eprintln!("jean: {ev:?}: nothing to do (not a morning, or it has already greeted today)");
+        }
+        for a in actions {
             match a {
-                Action::Say(s) => self.say(&s),
+                Action::Say(s) => {
+                    eprintln!("jean: saying {s:?}");
+                    self.say(&s)
+                }
             }
         }
     }

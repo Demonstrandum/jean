@@ -38,7 +38,7 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 - Voice with a real microphone: the rest of the voice path (voice-activity detection, wake phrase, whisper.cpp, the agent, Piper) runs for real under `scripts/emulate-voice.sh`; only the microphone and speaker hardware (sox's `rec` and a player) are stood in for, so those two adapters are the untested part.
 - The NixOS configuration evaluates (with the assistant and panel on), but it has not been built or booted: there is no Linux builder here, so the VM and the `checks.vm` test have not run.
 - The reMarkable: it shows the display and the touch relay is tested end to end up to the tablet's log (see below). Whether the panel still flashes the gradients on each tick, whether touches feel immediate on the glass, and the effect of `JEAN_REFRESH` have been judged by eye only by the owner, not measured.
-- Home Assistant: the translation is tested; no instance was reachable.
+- Home Assistant: run against an emulator (`scripts/ha-emulator.py`, driven end to end by `scripts/emulate-home.sh`); not against a real instance, so its real-world quirks (long-lived token scopes, entity renames) are untested.
 - The builder promoting a change automatically (`JEAN_APPROVAL=auto`) has only run against fakes; the live test stops at "needs approval".
 - Sensors beyond Home Assistant (GPIO, I²C) are not written.
 
@@ -49,6 +49,12 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 A real run: the request "Set a timer for 10 minutes for the tea" went `Listening, heard, hear✓ set_timer✓, Speaking "Ten minute timer for the tea is set.", Idle`, the remark with no wake phrase was ignored, and "What is the weather like?" answered from the display's live weather; Piper's replies transcribe back word for word.
 
 It found a real weakness: whisper's base model sometimes hears the wake phrase badly ("Eclord, what is the weather like?"), and a request then went unanswered. Two fixes: whisper gets the wake phrases as its initial prompt, and the wake matcher accepts a name with the same consonant skeleton ("Eclord", "cloud", "clawed", "clod" for "Claude") when something vouches for it (the greeting before it matched exactly, or it is a longish word that begins the utterance), so that "The cold wind" and "Hey John" wake nothing.
+
+## The house on emulators
+
+`scripts/ha-emulator.py` is a Home Assistant stand-in: the REST API the feed uses (`GET /api/states/<entity>`, a bearer token, HA's state objects with `last_changed`, a 401 without the token, a 404 for an unknown entity) and a control endpoint to act as the house (`POST /_emulate {"binary_sensor.living_room_motion": "on"}`). `scripts/emulate-home.sh` runs the real `feeds/homeassistant.py` against it in a scratch project root with its own config and token, a scratch display, and the assistant listening to a silent microphone: the room values reach the display, someone "walks in" (motion and the front door turn on), and the assistant says aloud "Good morning. It is cold out, so take a jacket." (the script puts the household in a timezone where it is 08:00 now).
+
+It found two real bugs: while the sensor stays on the feed keeps republishing "now", and the watcher took every poll for new motion (the greeting logic hid it, any other rule would have been flooded), so motion is now one event until the room has been still for a minute (`MOTION_QUIET_MS`); and an entity Home Assistant does not know (a typo, a removed device) was shown as an off light or a closed door, which is a guess, so it is left out.
 
 ## The assistant driving the display (the live REPL)
 

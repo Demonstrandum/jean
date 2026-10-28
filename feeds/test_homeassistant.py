@@ -25,6 +25,11 @@ class T(unittest.TestCase):
         out = translate({"binary_sensor.m": {"state": "on", "last_changed": "2026-10-27T07:00:00Z"}}, CFG, 1_793_000_000_000)
         self.assertEqual(out["room.motion"], 1_793_000_000_000)
 
+    def test_an_entity_home_assistant_does_not_know_is_left_out_not_guessed(self):
+        out = translate({"light.a": {"state": "on"}, "light.b": None, "binary_sensor.d": None}, CFG, 5)
+        self.assertEqual(out["room.lights"], [{"name": "light.a", "on": True}])
+        self.assertEqual(out["room.doors"], [])
+
     def test_a_missing_sensor_publishes_nothing_for_motion(self):
         self.assertNotIn("room.motion", translate({}, CFG, 5))
 

@@ -40,8 +40,9 @@ def translate(states, cfg, now_ms):
             out["room.motion"] = now_ms
         elif st.get("state") == "off" and st.get("last_changed"):
             out["room.motion"] = instant(st["last_changed"])
-    out["room.lights"] = [{"name": friendly(states.get(e) or {}, e), "on": (states.get(e) or {}).get("state") == "on"} for e in cfg.get("lights", [])]
-    out["room.doors"] = [{"name": friendly(states.get(e) or {}, e), "open": (states.get(e) or {}).get("state") == "on"} for e in cfg.get("doors", [])]
+    # an entity Home Assistant does not know (a typo in the config, a device removed) is left out, not shown as off or closed: that would be a guess
+    out["room.lights"] = [{"name": friendly(states[e], e), "on": states[e].get("state") == "on"} for e in cfg.get("lights", []) if states.get(e)]
+    out["room.doors"] = [{"name": friendly(states[e], e), "open": states[e].get("state") == "on"} for e in cfg.get("doors", []) if states.get(e)]
     return out
 
 
