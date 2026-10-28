@@ -4,6 +4,11 @@
 # Exit codes: 0 = every screen fits, 1 = something does not, 2 = no Chrome/Chromium (skipped). `cargo test` runs this.
 # usage: scripts/selftest.sh [port]      (a free port by default; set CHROME to a Chrome/Chromium binary if it is not found)
 set -eu
+# every size the display is shown at: the design's 800x480 and the reMarkable 2's 800x600 (4:3); each is a pass of its own
+if [ -z "${SELFTEST_SIZE:-}" ]; then
+  for s in 800x480 800x600; do SELFTEST_SIZE=$s sh "$0" "$@" || exit $?; done
+  exit 0
+fi
 [ -z "${JEAN_NO_BROWSER:-}" ] || { echo "selftest: JEAN_NO_BROWSER is set; skipped" >&2; exit 2; }
 cd "$(dirname "$0")/.."
 PORT="${1:-$(python3 -c "import socket; s = socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1])")}"
@@ -19,7 +24,7 @@ cleanup() { kill "$SERVER" "$BROWSER" 2>/dev/null || true; rm -rf "$STATE" "$PRO
 trap cleanup EXIT
 "$SERVER_BIN" "127.0.0.1:$PORT" "$STATE" . >"$STATE/server.log" 2>&1 & SERVER=$!
 for _ in $(seq 1 40); do curl -sf "http://127.0.0.1:$PORT/status" >/dev/null 2>&1 && break; sleep 0.5; done
-"$CHROME" --headless=new --disable-gpu --no-sandbox --user-data-dir="$PROFILE" --window-size=1000,800 "http://127.0.0.1:$PORT/live" >/dev/null 2>&1 & BROWSER=$!
+"$CHROME" --headless=new --disable-gpu --no-sandbox --user-data-dir="$PROFILE" --window-size=1000,800 "http://127.0.0.1:$PORT/live?size=$SELFTEST_SIZE" >/dev/null 2>&1 & BROWSER=$!
 # wait for the page to connect and the seeds to be applied
 for _ in $(seq 1 60); do
   n=$(curl -sf "http://127.0.0.1:$PORT/status" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['tail'] if d['connected'] else -1)" 2>/dev/null || echo -1)

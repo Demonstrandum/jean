@@ -5,8 +5,9 @@ ui.defineScreen({
   tiles: [
     {
       id: "climate", at: zone(Z.A1, Z.C2), title: "Climate", glyph: "thermo",
-      body: bind([K.room.temp, K.room.humidity], ([temp, humidity]) => div({ style: "display:flex;gap:28px;align-items:flex-end" },
-        bignum(fmt.num(temp, 1), { unit: "°C" }), bignum(fmt.num(humidity), { unit: "%" }))),
+      // each numeral is its own measuring frame (a pane): a bignum sizes itself to the width of its frame, so two side by side in one would each take the whole tile
+      body: bind([K.room.temp, K.room.humidity], ([temp, humidity]) => div({ style: "display:flex;gap:20px;align-items:flex-end;height:100%" },
+        pane({ style: "flex:1;min-width:0;display:flex;align-items:flex-end" }, bignum(fmt.num(temp, 1), { unit: "°C" })), pane({ style: "flex:1;min-width:0;display:flex;align-items:flex-end" }, bignum(fmt.num(humidity), { unit: "%" })))),
       count: "temperature · humidity",
     },
     {
