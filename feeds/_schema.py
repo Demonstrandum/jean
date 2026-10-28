@@ -68,6 +68,7 @@ class Presence(IntEnum):
     Listening = 1
     Thinking = 2
     Speaking = 3
+    Working = 4
 
 
 class RateKind(IntEnum):

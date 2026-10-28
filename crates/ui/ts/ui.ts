@@ -1610,7 +1610,8 @@ interface TileSpec {
   readonly title: string;
   readonly glyph?: IconName;
   readonly tone?: TileTone | readonly TileTone[];
-  readonly inverted?: boolean;
+  /** Inverted (white on black): always (`true`), or only while a condition on live keys holds: `inverted: invertWhen(K.claude.state, (s) => s !== Presence.Idle)`. */
+  readonly inverted?: boolean | InvertWhen;
   readonly body?: Slot;
   /** The line under the body. */
   readonly count?: Slot;
@@ -1651,11 +1652,25 @@ let navigationOn = true;
 const toneClass = (t: TileSpec["tone"]): string | undefined => (t === undefined ? undefined : Array.isArray(t) ? t.join(" ") : (t as string));
 const resolveBody = <T extends Child>(b: Slot<T> | undefined): T | undefined => (typeof b === "function" ? (b as () => T)() : b);
 
+/** A condition on live keys that inverts a tile while it holds (see `invertWhen`). */
+interface InvertWhen { readonly keys: readonly Key<any>[]; readonly when: (values: any) => boolean }
+/**
+ * A tile that turns black while something is going on: `invertWhen(K.claude.state, (state) => state !== Presence.Idle)`, or with several keys a tuple.
+ * It follows the keys every second (the tick tier), because what it signals (the assistant working) should not wait for a beat.
+ */
+function invertWhen<T>(key: Key<T>, when: (v: T | undefined) => boolean): InvertWhen;
+function invertWhen<Ks extends Key<any>[]>(keys: readonly [...Ks], when: (v: Values<Ks>) => boolean): InvertWhen;
+function invertWhen(keys: any, when: (v: any) => boolean): InvertWhen { return { keys: Array.isArray(keys) ? keys : [keys], when: Array.isArray(keys) ? when : (v: any[]) => when(v[0]) }; }
+
 /** Make one tile from its spec. */
 const tileFrom = (s: TileSpec): HTMLElement => {
   if (s.frameless) { const bare = center(resolveBody(s.body)); bare.dataset.tile = s.id; return place(bare, s.at); }
-  const node = tile(s.title, resolveBody(s.body), { count: resolveBody(s.count), inverted: s.inverted, tone: toneClass(s.tone), glyph: s.glyph, waves: s.waves, back: resolveBody(s.back) });
+  const node = tile(s.title, resolveBody(s.body), { count: resolveBody(s.count), inverted: s.inverted === true, tone: toneClass(s.tone), glyph: s.glyph, waves: s.waves, back: resolveBody(s.back) });
   node.dataset.tile = s.id;
+  if (typeof s.inverted === "object") {
+    const w = s.inverted;
+    node.append(feed(w.keys as Key<any>[], (v) => { node.classList.toggle("inv", w.when(v)); return h("span", { class: "inv-watch", hidden: true }); }, { tier: Tier.Tick, fallback: h("span", { hidden: true }) }));
+  }
   return place(node, s.at);
 };
 
@@ -1721,6 +1736,19 @@ function tap(x: number, y: number): string | null {
   const r = screen.getBoundingClientRect(), k = r.width / screen.offsetWidth;
   const el = document.elementFromPoint(r.left + x * k, r.top + y * k)?.closest<HTMLElement>("[data-tile]");
   return screenDefs.get(currentScreen)?.tiles.find((t) => t.id === el?.dataset.tile)?.opens ?? null;
+}
+
+/**
+ * The current screen as data an agent can read: every tile with its id, zone, title, whether it is inverted, and the text it shows now; plus the screens
+ * that exist and how the screen fits. The words, not the pixels: what `look_up` is to the reference, this is to the display.
+ */
+function describeScene(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; fit: FitReport } {
+  const spec = currentScreen ? screenDefs.get(currentScreen) : undefined;
+  const tiles = [...root.querySelectorAll<HTMLElement>("[data-tile]")].map((el) => {
+    const t = spec?.tiles.find((x) => x.id === el.dataset.tile);
+    return { id: el.dataset.tile!, zone: t ? zoneName(t.at) : "", title: t?.title ?? "", inverted: el.classList.contains("inv"), text: (el.querySelector(".tile-body")?.textContent ?? el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 240) };
+  });
+  return { screen: currentScreen, screens: [...screenDefs.keys()], tiles, fit: adapt() };
 }
 
 /** The tabbed screen `delta` places along the tab bar from the current one, wrapping (what a swipe asks for); null without a tab bar. A pure query like `tap`. */
@@ -2887,6 +2915,9 @@ const ui = {
   defineScreen, go, screenOf: (id: string): ScreenHandle | undefined => (screenDefs.has(id) ? screenHandle(id) : undefined), screenIds: () => [...screenDefs.keys()], current: () => currentScreen,
   /** Show every screen with sample data and report how each fits (run inside a query so the DOM is restored). */
   selfTest, frames, docs,
+  /** The current screen as data: its tiles (id, zone, title, inverted, text now), the screens that exist, and the fit. How an agent sees the display. */
+  describe: describeScene,
+  invertWhen,
   /** What a tap at a point of the scene should show: a screen id, or null. A tab in the top band, a tile's `opens` screen on home, home elsewhere. A pure query: the page stays display-only. */
   tap,
   /** The tabbed screen delta places along the tab bar from the current one (1 = next, -1 = previous), wrapping: what a swipe asks for. A pure query. */
@@ -2899,7 +2930,7 @@ const ui = {
 const exported: Record<string, unknown> = {
   ...prims, row, col, grid, box, card, big, heading, divider, badge, stat, list, table, kv, progress,
   bars, sparkline, agenda, weather, md, clock, countdown, live,
-  boxNumber, boxExpression, boxClock, BoxOp, BoxLayout, usageFill, chip, tileFrom, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
+  boxNumber, boxExpression, boxClock, BoxOp, BoxLayout, usageFill, chip, tileFrom, invertWhen, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
   icon, weatherIcon, say, sunArc, hourly, habitGrid, timerRing, tearoff, note, presence, moon,
   tile, levelTile, dayDial, ruler, statStrip, pills, slider, menu, device, hero,
   panel, meta, claudeLine, tilegrid, dotClock, dayStrip, timeline, areaChart,

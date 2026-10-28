@@ -58,8 +58,10 @@ ui.defineScreen({
     },
     {
       id: "claude", opens: "claude", at: zone(Z.D3, Z.F3), title: "Claude", glyph: "sparkle",
-      body: bind(K.claude.say, (say) => div({ style: "font:600 17px/1.35 var(--sans)" }, say ?? ""), { fallback: div({ style: "font:500 15px var(--sans)" }, "Nothing to say yet.") }),
-      count: bind(K.claude.at, (at) => `said ${fmt.clock(at)}`, { fallback: "waiting" }),
+      // black while the assistant is busy, with what it heard, the tool steps as they happen and what it says; its last words when idle
+      inverted: invertWhen(K.claude.state, (state) => (state ?? Presence.Idle) !== Presence.Idle),
+      body: bind([K.claude.state, K.claude.heard, K.claude.say, K.claude.steps, K.claude.task], ([state, heard, say, steps, task]) => claudeLive(state ?? Presence.Idle, heard, say, steps ?? [], task), { tier: Tier.Tick, fallback: div({ style: "font:500 15px var(--sans)" }, "Nothing to say yet.") }),
+      count: bind([K.claude.state, K.claude.at], ([state, at]) => ((state ?? Presence.Idle) !== Presence.Idle ? label.presence(state ?? Presence.Idle) : at ? `said ${fmt.clock(at)}` : "waiting"), { tier: Tier.Tick, fallback: "waiting" }),
     },
   ],
 });

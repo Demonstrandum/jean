@@ -62,6 +62,7 @@ fn main() {
     let show = {
         let (browser, screen, last_slot) = (browser.clone(), screen.clone(), last_slot.clone());
         move |what: &str, query: String| {
+            let started = std::time::Instant::now();
             let mut b = browser.lock().unwrap();
             match b.evaluate(&query) {
                 Ok(serde_json::Value::String(name)) => {
@@ -75,6 +76,7 @@ fn main() {
                         Ok(f) => {
                             screen.show(f);
                             last_slot.store(slot_of(now_ms()), Ordering::Relaxed);
+                            eprintln!("eink-serve: {what}: frame ready {} ms after the gesture", started.elapsed().as_millis());
                         }
                         Err(e) => eprintln!("eink-serve: {e}"),
                     }

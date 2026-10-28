@@ -9,9 +9,11 @@ ui.defineScreen({
       count: bind([K.claude.state, K.claude.at], ([state, at]) => [sigil(sig.state(stateOf.presence(state ?? Presence.Idle)), 10), ` ${label.presence(state ?? Presence.Idle)}${at ? " · " + fmt.clock(at) : ""}`]),
     },
     {
-      id: "answer", at: zone(Z.A2, Z.C3), title: "Answer", glyph: "sparkle", inverted: true,
-      body: bind(K.claude.say, (say) => div({ style: "font:600 22px/1.3 var(--sans)" }, clamp(7, say ?? "")), { fallback: div({ style: "font:500 17px var(--sans)" }, "Nothing to say yet.") }),
-      count: bind(K.claude.at, (at) => (at ? `said ${fmt.clock(at)}` : "waiting")),
+      id: "answer", at: zone(Z.A2, Z.C3), title: "Answer", glyph: "sparkle",
+      // black while the assistant is busy: what it is doing, step by step, and what it says
+      inverted: invertWhen(K.claude.state, (state) => (state ?? Presence.Idle) !== Presence.Idle),
+      body: bind([K.claude.state, K.claude.heard, K.claude.say, K.claude.steps, K.claude.task], ([state, heard, say, steps, task]) => claudeLive(state ?? Presence.Idle, state !== Presence.Idle ? undefined : heard, say, steps ?? [], task, "large"), { tier: Tier.Tick, fallback: div({ style: "font:500 17px var(--sans)" }, "Nothing to say yet.") }),
+      count: bind([K.claude.state, K.claude.at], ([state, at]) => ((state ?? Presence.Idle) !== Presence.Idle ? label.presence(state ?? Presence.Idle) : at ? `said ${fmt.clock(at)}` : "waiting"), { tier: Tier.Tick, fallback: "waiting" }),
     },
     {
       id: "timer", at: zone(Z.D2, Z.F3), title: "Timer", glyph: "clock", tone: "fill",

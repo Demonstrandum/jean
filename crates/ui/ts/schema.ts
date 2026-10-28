@@ -26,7 +26,7 @@
   /** Generation fuels in the grid mix. */
   enum Fuel { Biomass, Coal, Imports, Gas, Nuclear, Other, Hydro, Solar, Wind }
   /** What the assistant is doing. */
-  enum Presence { Idle, Listening, Thinking, Speaking }
+  enum Presence { Idle, Listening, Thinking, Speaking, Working }
   /** The tariff's shape: one rate all day, or a rate per half hour. */
   enum RateKind { Flat, HalfHourly }
   /** The eight named phases of the moon. */
@@ -54,6 +54,8 @@
   interface MixShare { readonly fuel: Fuel; readonly pct: number }
   /** A process and the share of one core it uses. */
   interface Proc { readonly name: string; readonly cpu: number }
+  /** One thing the assistant did while working: a tool it called, in words for the display (`ok` is null while it runs). */
+  interface Step { readonly tool: string; readonly detail: string; readonly ok: boolean | null }
   /** A shopping-list line. */
   interface Grocery { readonly text: string; readonly qty: string; readonly done: boolean }
   /** A note to keep in mind; `due` is whatever the person wrote ("Fri"). */
@@ -200,6 +202,8 @@
       heard: ui.key<string>("claude.heard", "The last thing it heard.", "How long do I boil an egg?"),
       say: ui.key<string>("claude.say", "The last thing it said.", "About six and a half minutes for a jammy yolk."),
       at: ui.key<Ms>("claude.at", "When it last spoke.", now),
+      steps: ui.key<Step[]>("claude.steps", "What it is doing right now, one step per tool call, oldest first (ok is null while a step runs). Cleared when a request starts.", []),
+      task: ui.key<string>("claude.task", "The background job it is working on (the builder's task title), or empty.", ""),
     },
     room: {
       temp: ui.key<number | null>("room.temp", "Room temperature, °C (from Home Assistant).", 21.4),
@@ -237,7 +241,7 @@
     carbon: (c: CarbonIndex): string => ["very low", "low", "moderate", "high", "very high"][c],
     pollutant: (p: Pollutant): string => ["PM2.5", "PM10", "NO₂", "O₃"][p],
     fuel: (f: Fuel): string => ["biomass", "coal", "imports", "gas", "nuclear", "other", "hydro", "solar", "wind"][f],
-    presence: (p: Presence): string => ["idle", "listening", "thinking", "speaking"][p],
+    presence: (p: Presence): string => ["idle", "listening", "thinking", "speaking", "working"][p],
     moon: (m: MoonPhase): string => ["New moon", "Waxing crescent", "First quarter", "Waxing gibbous", "Full moon", "Waning gibbous", "Last quarter", "Waning crescent"][m],
   };
   /** The weather symbol the kit draws for a sky: pass it to weatherIcon(). */
@@ -348,6 +352,28 @@
     });
   };
 
-  Object.assign(window, { K, Sky, UvLevel, AirBand, CarbonIndex, Pollutant, Fuel, Presence, RateKind, MoonPhase, uvLevel, airBand, moonPhaseOf, isGreen, label, skyIcon, stateOf, fmt, series, dayStart, calendar });
+  // ---------------------------------------------------------------- the assistant's live activity
+
+  /**
+   * What the assistant is doing, as a block for a tile: its state with a blinking cursor, what it heard, the last tool steps (a solid square when done, open
+   * while running, crossed when failed) and what it is saying. Bounded: two lines of heard, two steps, three lines of speech, so it fits a three-cell tile.
+   * `size: "large"` is for a bigger tile (three lines of heard, six steps, eight lines of speech). Give it the values of K.claude.state, heard, say, steps, task; pair the tile with `inverted: invertWhen(K.claude.state, ...)` to turn it black while busy.
+   */
+  const claudeLive = (state: Presence, heard?: string, say?: string, steps: readonly Step[] = [], task?: string, size: "small" | "large" = "small") => {
+    const { div, span, sigil, sig, clamp, cursor } = window as any;
+    const busy = state !== Presence.Idle;
+    const rows: any[] = [];
+    if (busy) rows.push(div({ style: "font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;display:flex;gap:6px;align-items:center" }, label.presence(state), cursor()));
+    if (busy && task) rows.push(div({ style: "font:600 13px/1.25 var(--sans)" }, clamp(1, "▸ " + task)));
+    if (busy && heard) rows.push(div({ style: "font:500 13px/1.25 var(--sans)" }, clamp(size === "large" ? 3 : 2, `“${heard}”`)));
+    for (const s of steps.slice(size === "large" ? -6 : -2)) {
+      rows.push(div({ style: "display:flex;gap:6px;align-items:center;font:500 12px/1.2 var(--mono)" },
+        sigil(sig.state(s.ok === null ? State.Idle : s.ok ? State.Ok : State.Err), 10), span({ style: "flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" }, `${s.tool} ${s.detail}`)));
+    }
+    if (say && (!busy || state === Presence.Speaking)) rows.push(div({ style: busy ? "font:600 15px/1.25 var(--sans)" : "font:600 17px/1.35 var(--sans)" }, clamp(size === "large" ? 8 : busy ? 3 : 4, say)));
+    return div({ style: "display:flex;flex-direction:column;gap:4px;min-height:0;overflow:hidden" }, ...rows);
+  };
+
+  Object.assign(window, { K, claudeLive, Sky, UvLevel, AirBand, CarbonIndex, Pollutant, Fuel, Presence, RateKind, MoonPhase, uvLevel, airBand, moonPhaseOf, isGreen, label, skyIcon, stateOf, fmt, series, dayStart, calendar });
   ui.shell = shell;
 })();

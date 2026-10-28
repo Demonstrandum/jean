@@ -30,9 +30,10 @@ impl<'a> Runner<'a> {
     /// Wait up to `wait` for one utterance and deal with it. True if something was heard that was for us.
     pub fn hear_once(&mut self, wait: Duration, now_ms: u64) -> Result<bool, String> {
         let Some(rec) = self.ears.listen(wait)? else { return Ok(false) };
-        self.session.listening(now_ms);
+        self.session.transcribing(now_ms);
         let text = self.stt.transcribe(&rec);
         let _ = std::fs::remove_file(&rec);
+        self.session.transcribed(text.is_ok());
         let text = text?;
         let request = if self.wake.is_empty() {
             Some(text.as_str())

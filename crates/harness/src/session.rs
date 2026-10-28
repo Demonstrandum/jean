@@ -1,8 +1,11 @@
 //! A conversation with the household: what was heard goes to the agent, the answer is shown and spoken, and the timers are kept.
 
+use std::cell::{Cell, RefCell};
+
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 
+use crate::activity::{Activity, Feed};
 use crate::agent::{Agent, Profile};
 use crate::claude::{Block, Llm, Message, Role};
 use crate::display::Display;
@@ -19,6 +22,8 @@ pub enum Presence {
     Listening = 1,
     Thinking = 2,
     Speaking = 3,
+    /// On a background job (the builder).
+    Working = 4,
 }
 
 /// How many user turns of conversation are kept in the history.
@@ -33,11 +38,15 @@ pub struct Session<'a> {
     pub model: String,
     pub tz: Tz,
     pub place: String,
+    /// The steps of the request in hand, as the display shows them live.
+    activity: RefCell<Activity>,
+    /// A transcription step is already on the display for the request that is coming.
+    fresh: Cell<bool>,
 }
 
 impl<'a> Session<'a> {
     pub fn new(llm: &'a dyn Llm, display: &'a Display, tasks: &'a Tasks, model: &str, tz: Tz, place: &str) -> Session<'a> {
-        Session { llm, display, tasks, timers: Timers::default(), history: vec![], model: model.into(), tz, place: place.into() }
+        Session { llm, display, tasks, timers: Timers::default(), history: vec![], model: model.into(), tz, place: place.into(), activity: RefCell::new(Activity::default()), fresh: Cell::new(false) }
     }
 
     /// The facts of the moment the agent is told fresh each turn.
@@ -54,6 +63,23 @@ impl<'a> Session<'a> {
         self.set_presence(Presence::Listening, now_ms);
     }
 
+    /// A recording is being turned into words: the display shows it as the first step of the request.
+    pub fn transcribing(&self, now_ms: u64) {
+        self.fresh.set(true);
+        {
+            let mut a = self.activity.borrow_mut();
+            a.clear();
+            a.begin("hear", "transcribing");
+        }
+        let _ = self.display.show_exchange(Some(""), None, Presence::Listening as u8, now_ms);
+        Feed { display: self.display, activity: &self.activity }.publish();
+    }
+
+    pub fn transcribed(&self, ok: bool) {
+        self.activity.borrow_mut().end(ok);
+        Feed { display: self.display, activity: &self.activity }.publish();
+    }
+
     pub fn idle(&self, now_ms: u64) {
         self.set_presence(Presence::Idle, now_ms);
     }
@@ -61,8 +87,13 @@ impl<'a> Session<'a> {
     /// One request, start to finish: show what was heard, let the agent work, show what it says. The reply is returned to be spoken.
     pub fn handle(&mut self, heard: &str, now_ms: u64) -> Result<String, String> {
         let _ = self.display.show_exchange(Some(heard), None, Presence::Thinking as u8, now_ms);
+        if !self.fresh.replace(false) {
+            self.activity.borrow_mut().clear(); // a typed request: no transcription step came before it
+        }
+        let feed = Feed { display: self.display, activity: &self.activity };
+        feed.publish();
         let profile = Profile { model: self.model.clone(), system: prompts::voice_system(&self.context(now_ms)), max_tokens: 600, max_steps: 8 };
-        let agent = Agent { llm: self.llm, profile };
+        let agent = Agent { llm: self.llm, profile, watch: Some(&feed) };
         let clock = move || now_ms;
         let outcome = {
             let mut tools = VoiceTools { display: self.display, timers: &mut self.timers, tasks: self.tasks, now_ms: &clock };
@@ -132,6 +163,10 @@ mod tests {
         assert!(pushes[0].contains("\"claude.heard\":\"set an egg timer") && pushes[0].contains("\"claude.state\":2"), "{pushes:?}");
         assert!(pushes.iter().any(|p| p.contains("timer.end")));
         assert!(pushes.last().unwrap().contains("\"claude.say\":\"Timer set") && pushes.last().unwrap().contains("\"claude.state\":3"));
+        // the tool call went to the display as a step that started open and ended closed
+        let steps: Vec<&&str> = pushes.iter().filter(|p| p.contains("claude.steps")).collect();
+        assert!(steps.iter().any(|p| p.contains(r#""tool":"set_timer""#) && p.contains(r#""ok":null"#)), "{steps:?}");
+        assert!(steps.last().unwrap().contains(r#""detail":"egg · 390""#) && steps.last().unwrap().contains(r#""ok":true"#), "{steps:?}");
         // the agent was told the time and the place
         assert!(llm.seen.borrow()[0].system.contains("in London"));
         let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("sess-{}-{:?}", std::process::id(), std::thread::current().id())));

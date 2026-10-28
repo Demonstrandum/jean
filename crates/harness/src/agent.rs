@@ -10,6 +10,12 @@ pub trait Tools {
     fn call(&mut self, name: &str, input: &Value) -> Result<String, String>;
 }
 
+/// Told as the agent works: a tool starts, a tool ends. The display's live activity is fed by this.
+pub trait Watch {
+    fn begin(&self, tool: &str, input: &Value);
+    fn end(&self, ok: bool);
+}
+
 /// How an agent is set up: which model, what it is told, and how far it may go in one turn.
 #[derive(Clone, Debug)]
 pub struct Profile {
@@ -34,6 +40,8 @@ pub struct Outcome {
 pub struct Agent<'a> {
     pub llm: &'a dyn Llm,
     pub profile: Profile,
+    /// Told when each tool starts and ends, if anyone is watching.
+    pub watch: Option<&'a dyn Watch>,
 }
 
 impl<'a> Agent<'a> {
@@ -53,10 +61,16 @@ impl<'a> Agent<'a> {
             let mut results = Vec::new();
             for (id, name, input) in uses {
                 calls.push(name.to_string());
+                if let Some(w) = self.watch {
+                    w.begin(name, input);
+                }
                 let (content, is_error) = match tools.call(name, input) {
                     Ok(s) => (s, false),
                     Err(e) => (e, true),
                 };
+                if let Some(w) = self.watch {
+                    w.end(!is_error);
+                }
                 results.push(Block::ToolResult { tool_use_id: id.to_string(), content, is_error });
             }
             history.push(Message { role: Role::User, content: results });
@@ -91,7 +105,7 @@ mod tests {
     #[test]
     fn a_tool_call_then_an_answer() {
         let llm = Script::new(vec![call("t1", "echo", json!({ "x": 1 })), say("All set.")]);
-        let agent = Agent { llm: &llm, profile: profile(5) };
+        let agent = Agent { llm: &llm, profile: profile(5), watch: None };
         let mut tools = Fake { log: vec![] };
         let mut history = vec![];
         let out = agent.run_turn(&mut tools, &mut history, "do it").unwrap();
@@ -107,7 +121,7 @@ mod tests {
     #[test]
     fn a_failing_tool_is_reported_to_the_model_not_raised() {
         let llm = Script::new(vec![call("t1", "echo", json!({ "fail": true })), say("It failed.")]);
-        let agent = Agent { llm: &llm, profile: profile(5) };
+        let agent = Agent { llm: &llm, profile: profile(5), watch: None };
         let mut history = vec![];
         let out = agent.run_turn(&mut Fake { log: vec![] }, &mut history, "go").unwrap();
         assert_eq!(out.text, "It failed.");
@@ -117,7 +131,7 @@ mod tests {
     #[test]
     fn a_runaway_loop_is_cut_off() {
         let llm = Script::new((0..10).map(|i| call(&format!("t{i}"), "echo", json!({}))).collect());
-        let agent = Agent { llm: &llm, profile: profile(3) };
+        let agent = Agent { llm: &llm, profile: profile(3), watch: None };
         let out = agent.run_turn(&mut Fake { log: vec![] }, &mut vec![], "loop").unwrap();
         assert!(out.truncated);
         assert_eq!(out.calls.len(), 3);

@@ -61,9 +61,17 @@ impl Worker<'_> {
     fn build(&self, task: &Task, now_ms: u64) -> Result<(Status, String), String> {
         let tree = Worktree::create(self.repo, &self.tree_dir(task.id), task.id)?;
         let profile = Profile { model: self.model.clone(), system: prompts::builder_system(&task.title, &task.details), max_tokens: 8000, max_steps: 60 };
-        let agent = Agent { llm: self.llm, profile };
+        // the Claude tile turns black with the job's title and narrates the builder's tool calls
+        let activity = std::cell::RefCell::new(crate::activity::Activity::default());
+        let feed = crate::activity::Feed { display: self.display, activity: &activity };
+        let _ = self.display.show_work(Some(&task.title), now_ms);
+        feed.publish();
+        let agent = Agent { llm: self.llm, profile, watch: Some(&feed) };
         let mut tools = BuilderTools { tree: &tree, display: self.display, backend: self.backend, finished: Finished::default() };
         let outcome = agent.run_turn(&mut tools, &mut vec![], &format!("{}\n\n{}", task.title, task.details));
+        activity.borrow_mut().clear();
+        feed.publish();
+        let _ = self.display.show_work(None, now_ms);
         let result = (|| {
             outcome?;
             let Some(summary) = tools.finished.0.clone() else { return Ok((Status::Failed, "the builder stopped without finishing".to_string())) };

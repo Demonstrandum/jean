@@ -271,13 +271,21 @@ declare function zonesOverlap(a: Zone, b: Zone): boolean;
 type Slot<T extends Child = Child> = T | (() => T);
 /** How a tile is dressed: fill = its body stretches, list = ruled rows, legend = title on the border, iconic = centred icon, usage = filled to a history curve. */
 type TileTone = "fill" | "list" | "legend" | "iconic" | "usage";
-interface TileSpec { readonly id: string; readonly at: Zone; readonly title: string; readonly glyph?: IconName; readonly tone?: TileTone | readonly TileTone[]; readonly inverted?: boolean; readonly body?: Slot; readonly count?: Slot; readonly back?: Slot<Node>; readonly waves?: boolean | Parameters<typeof waves>[0]; readonly frameless?: boolean; readonly opens?: string; }
+interface TileSpec { readonly id: string; readonly at: Zone; readonly title: string; readonly glyph?: IconName; readonly tone?: TileTone | readonly TileTone[]; readonly inverted?: boolean | InvertWhen; readonly body?: Slot; readonly count?: Slot; readonly back?: Slot<Node>; readonly waves?: boolean | Parameters<typeof waves>[0]; readonly frameless?: boolean; readonly opens?: string; }
 interface ScreenSpec { readonly id: string; readonly tab?: string; readonly tiles: readonly TileSpec[]; }
 /** The handle `defineScreen` returns: read and change a screen's tiles one at a time. */
 interface ScreenHandle { readonly id: string; tiles(): readonly TileSpec[]; tile(id: string): TileSpec | undefined; setTile(spec: TileSpec): void; patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): void; removeTile(id: string): void; }
 interface ScreenState { id: string; tab: string; tiles: readonly TileSpec[] }
 declare function toneClass(t: TileSpec["tone"]): string | undefined;
 declare function resolveBody<T extends Child>(b: Slot<T> | undefined): T | undefined;
+/** A condition on live keys that inverts a tile while it holds (see `invertWhen`). */
+interface InvertWhen { readonly keys: readonly Key<any>[]; readonly when: (values: any) => boolean }
+/** A tile that turns black while something is going on: `invertWhen(K.claude.state, (state) => state !== Presence.Idle)`, or with several keys a tuple.
+ * It follows the keys every second (the tick tier), because what it signals (the assistant working) should not wait for a beat. */
+declare function invertWhen<T>(key: Key<T>, when: (v: T | undefined) => boolean): InvertWhen;
+/** A tile that turns black while something is going on: `invertWhen(K.claude.state, (state) => state !== Presence.Idle)`, or with several keys a tuple.
+ * It follows the keys every second (the tick tier), because what it signals (the assistant working) should not wait for a beat. */
+declare function invertWhen<Ks extends Key<any>[]>(keys: readonly [...Ks], when: (v: Values<Ks>) => boolean): InvertWhen;
 /** Make one tile from its spec. */
 declare function tileFrom(s: TileSpec): HTMLElement;
 declare function checkTiles(id: string, tiles: readonly TileSpec[]): void;
@@ -291,6 +299,9 @@ declare function screenHandle(id: string): ScreenHandle;
  * tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
  * such as the e-ink server, asks here and then navigates with `POST /screen`. */
 declare function tap(x: number, y: number): string | null;
+/** The current screen as data an agent can read: every tile with its id, zone, title, whether it is inverted, and the text it shows now; plus the screens
+ * that exist and how the screen fits. The words, not the pixels: what `look_up` is to the reference, this is to the display. */
+declare function describe(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; fit: FitReport };
 /** The tabbed screen `delta` places along the tab bar from the current one, wrapping (what a swipe asks for); null without a tab bar. A pure query like `tap`. */
 declare function step(delta: number): string | null;
 /** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
@@ -423,7 +434,7 @@ declare enum Pollutant { Pm25 = 0, Pm10 = 1, No2 = 2, O3 = 3 }
 /** Generation fuels in the grid mix. */
 declare enum Fuel { Biomass = 0, Coal = 1, Imports = 2, Gas = 3, Nuclear = 4, Other = 5, Hydro = 6, Solar = 7, Wind = 8 }
 /** What the assistant is doing. */
-declare enum Presence { Idle = 0, Listening = 1, Thinking = 2, Speaking = 3 }
+declare enum Presence { Idle = 0, Listening = 1, Thinking = 2, Speaking = 3, Working = 4 }
 /** The tariff's shape: one rate all day, or a rate per half hour. */
 declare enum RateKind { Flat = 0, HalfHourly = 1 }
 /** The eight named phases of the moon. */
@@ -448,6 +459,8 @@ interface Peak { readonly at: Ms; readonly value: number }
 interface MixShare { readonly fuel: Fuel; readonly pct: number }
 /** A process and the share of one core it uses. */
 interface Proc { readonly name: string; readonly cpu: number }
+/** One thing the assistant did while working: a tool it called, in words for the display (`ok` is null while it runs). */
+interface Step { readonly tool: string; readonly detail: string; readonly ok: boolean | null }
 /** A shopping-list line. */
 interface Grocery { readonly text: string; readonly qty: string; readonly done: boolean }
 /** A note to keep in mind; `due` is whatever the person wrote ("Fri"). */
@@ -472,6 +485,10 @@ declare function two(n: number): any;
 declare function dayStart(at: Ms): Ms;
 /** Set up the frame: registration marks, live sigils in the corners (left = the machine, right = the world) and the tab bar. */
 declare function shell(): void;
+/** What the assistant is doing, as a block for a tile: its state with a blinking cursor, what it heard, the last tool steps (a solid square when done, open
+ * while running, crossed when failed) and what it is saying. Bounded: two lines of heard, two steps, three lines of speech, so it fits a three-cell tile.
+ * `size: "large"` is for a bigger tile (three lines of heard, six steps, eight lines of speech). Give it the values of K.claude.state, heard, say, steps, task; pair the tile with `inverted: invertWhen(K.claude.state, ...)` to turn it black while busy. */
+declare function claudeLive(state: Presence, heard?: string, say?: string, steps?: readonly Step[], task?: string, size?: "small" | "large"): any;
 declare function div(...a: Arg[]): HTMLElement;
 declare function span(...a: Arg[]): HTMLElement;
 declare function p(...a: Arg[]): HTMLElement;
@@ -607,7 +624,7 @@ declare const K: {
   air: { eaqi: Key<number>; main: Key<Pollutant>; no2: Key<number>; o3: Key<number>; pm10: Key<number>; pm25: Key<number> };
   cal: { events: Key<CalEvent[]> };
   carbon: { best: Key<Span | null>; green: Key<number>; index: Key<CarbonIndex>; mix: Key<MixShare[]>; now: Key<number>; region: Key<string>; slots: Key<Intensity[]> };
-  claude: { at: Key<Ms>; heard: Key<string>; say: Key<string>; state: Key<Presence> };
+  claude: { at: Key<Ms>; heard: Key<string>; say: Key<string>; state: Key<Presence>; steps: Key<Step[]>; task: Key<string> };
   cpu: { cores: Key<Record<string, number[]>>; count: Key<number>; hist: Key<number[]>; total: Key<number> };
   disk: { hist: Key<number[]>; pct: Key<number>; total: Key<number>; used: Key<number> };
   link: { server: Key<number> };
@@ -676,6 +693,8 @@ declare const ui: {
   selfTest: typeof selfTest;
   frames: typeof frames;
   docs: typeof docs;
+  describe: typeof describe;
+  invertWhen: typeof invertWhen;
   tap: typeof tap;
   step: typeof step;
   size(w: number, ht: number): any;

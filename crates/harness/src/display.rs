@@ -87,6 +87,16 @@ impl Display {
         self.status().map(|s| s["connected"] == true).unwrap_or(false)
     }
 
+    /// The live steps of what the assistant is doing (`claude.steps`).
+    pub fn show_steps(&self, a: &crate::activity::Activity) -> Result<Value, String> {
+        self.push(&json!({ "claude.steps": a.steps() }))
+    }
+
+    /// The assistant is on a background job (the builder): the Claude tile turns black with the job's title; `None` ends it.
+    pub fn show_work(&self, task: Option<&str>, at_ms: u64) -> Result<Value, String> {
+        self.push(&json!({ "claude.state": if task.is_some() { 4 } else { 0 }, "claude.task": task.unwrap_or(""), "claude.at": at_ms }))
+    }
+
     /// The harness's face on the CLAUDE screen: what it heard, what it said, what it is doing.
     pub fn show_exchange(&self, heard: Option<&str>, said: Option<&str>, presence: u8, at_ms: u64) -> Result<Value, String> {
         let mut v = json!({ "claude.state": presence, "claude.at": at_ms });

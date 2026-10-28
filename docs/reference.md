@@ -1061,6 +1061,17 @@ toneClass(t: TileSpec["tone"]): string | undefined
 resolveBody<T extends Child>(b: Slot<T> | undefined): T | undefined
 ```
 
+### `invertWhen`
+
+```ts
+function invertWhen<T>(key: Key<T>, when: (v: T | undefined) => boolean): InvertWhen
+function invertWhen<Ks extends Key<any>[]>(keys: readonly [...Ks], when: (v: Values<Ks>) => boolean): InvertWhen
+function invertWhen(keys: any, when: (v: any) => boolean): InvertWhen
+```
+
+A tile that turns black while something is going on: `invertWhen(K.claude.state, (state) => state !== Presence.Idle)`, or with several keys a tuple.
+It follows the keys every second (the tick tier), because what it signals (the assistant working) should not wait for a beat.
+
 ### `tileFrom`
 
 ```ts
@@ -1107,6 +1118,15 @@ function tap(x: number, y: number): string | null
 What a tap at a point of the scene (px, as laid out) should show, or null. In the top band: the tab under it. On home: the `opens` screen of the
 tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
 such as the e-ink server, asks here and then navigates with `POST /screen`.
+
+### `describe`
+
+```ts
+function describe(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; fit: FitReport }
+```
+
+The current screen as data an agent can read: every tile with its id, zone, title, whether it is inverted, and the text it shows now; plus the screens
+that exist and how the screen fits. The words, not the pixels: what `look_up` is to the reference, this is to the display.
 
 ### `step`
 
@@ -1893,6 +1913,16 @@ shell(): void
 
 Set up the frame: registration marks, live sigils in the corners (left = the machine, right = the world) and the tab bar.
 
+### `claudeLive`
+
+```ts
+claudeLive(state: Presence, heard?: string, say?: string, steps: readonly Step[] = [], task?: string, size: "small" | "large" = "small")
+```
+
+What the assistant is doing, as a block for a tile: its state with a blinking cursor, what it heard, the last tool steps (a solid square when done, open
+while running, crossed when failed) and what it is saying. Bounded: two lines of heard, two steps, three lines of speech, so it fits a three-cell tile.
+`size: "large"` is for a bigger tile (three lines of heard, six steps, eight lines of speech). Give it the values of K.claude.state, heard, say, steps, task; pair the tile with `inverted: invertWhen(K.claude.state, ...)` to turn it black while busy.
+
 ## Values and namespaces
 
 ### `tags`
@@ -2293,7 +2323,7 @@ interface TileSpec
 - `readonly title: string;`
 - `readonly glyph?: IconName;`
 - `readonly tone?: TileTone | readonly TileTone[];`
-- `readonly inverted?: boolean;`
+- `readonly inverted?: boolean | InvertWhen;`
 - `readonly body?: Slot;`
 - `readonly count?: Slot;`
 - `readonly back?: Slot<Node>;`
@@ -2335,6 +2365,17 @@ interface ScreenState
 - `id: string;`
 - `tab: string;`
 - `tiles: readonly TileSpec[]`
+
+### `InvertWhen`
+
+```ts
+interface InvertWhen
+```
+
+A condition on live keys that inverts a tile while it holds (see `invertWhen`).
+
+- `readonly keys: readonly Key<any>[];`
+- `readonly when: (values: any) => boolean`
 
 ### `FitReport`
 
@@ -2626,6 +2667,7 @@ What the assistant is doing.
 - `Listening = 1`
 - `Thinking = 2`
 - `Speaking = 3`
+- `Working = 4`
 
 ### `RateKind`
 
@@ -2770,6 +2812,18 @@ A process and the share of one core it uses.
 
 - `readonly name: string;`
 - `readonly cpu: number`
+
+### `Step`
+
+```ts
+interface Step
+```
+
+One thing the assistant did while working: a tool it called, in words for the display (`ok` is null while it runs).
+
+- `readonly tool: string;`
+- `readonly detail: string;`
+- `readonly ok: boolean | null`
 
 ### `Grocery`
 
@@ -3702,6 +3756,26 @@ K.claude.at: Key<Ms>
 When it last spoke.
 
 - `id: claude.at`
+
+### `K.claude.steps`
+
+```ts
+K.claude.steps: Key<Step[]>
+```
+
+What it is doing right now, one step per tool call, oldest first (ok is null while a step runs). Cleared when a request starts.
+
+- `id: claude.steps`
+
+### `K.claude.task`
+
+```ts
+K.claude.task: Key<string>
+```
+
+The background job it is working on (the builder's task title), or empty.
+
+- `id: claude.task`
 
 ### `K.room.temp`
 
