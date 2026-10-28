@@ -9,8 +9,53 @@ use crate::display::Display;
 use crate::tasks::Tasks;
 use crate::timers::Timers;
 
-/// The names of the screens the display ships (a closed set: a request for any other is an error the model can read).
+/// The screens the display ships; others can be added at run time, so what is shown is checked against the display, not against this.
 pub const SCREENS: [&str; 8] = ["home", "day", "weather", "system", "energy", "lists", "room", "claude"];
+
+/// A query's value as text, or why it failed.
+pub fn explain_value(reply: &Result<Value, String>) -> Result<String, String> {
+    let v = match reply {
+        Ok(v) => v.clone(),
+        Err(e) => serde_json::from_str::<Value>(e).map_err(|_| e.clone())?,
+    };
+    if v["ok"] == true {
+        Ok(v["value"].to_string())
+    } else {
+        Err(v["error"].as_str().unwrap_or("the query failed").to_string())
+    }
+}
+
+/// The reply of a change or a query, as words for the model: what was applied, how the screen fits, or why it was refused.
+pub fn explain_change(reply: &Result<Value, String>) -> Result<String, String> {
+    let v = match reply {
+        Ok(v) => v.clone(),
+        // an HTTP error carries the server's JSON as text
+        Err(e) => serde_json::from_str::<Value>(e).map_err(|_| e.clone())?,
+    };
+    if v["ok"] == true {
+        let fit = &v["fit"];
+        let mut out = match v["seq"].as_u64() {
+            Some(n) => format!("applied (change {n})"),
+            None => "ok".to_string(),
+        };
+        if fit["fits"] == false || fit["clipped"] == true || fit["dropped"].as_array().is_some_and(|d| !d.is_empty()) {
+            out.push_str(&format!(". It does not fit: {}", fit));
+        } else if fit["fits"] == true {
+            out.push_str(". The screen fits.");
+        }
+        return Ok(out);
+    }
+    let mut msg = v["error"].as_str().unwrap_or("refused").to_string();
+    if let Some(d) = v["diagnostics"].as_array() {
+        for x in d.iter().take(6) {
+            msg.push_str(&format!("\n  line {}: {}", x["line"], x["message"].as_str().unwrap_or("")));
+        }
+    }
+    if v["rejected"] == true {
+        msg.push_str("\nNothing was changed.");
+    }
+    Err(msg)
+}
 
 pub struct VoiceTools<'a> {
     pub display: &'a Display,
@@ -46,6 +91,10 @@ impl Tools for VoiceTools<'_> {
             def("calendar", "Add, move or delete an event on the person's Google Calendar, or list the coming week.", json!({ "action": { "type": "string", "enum": ["list", "add", "move", "delete"] }, "title": { "type": "string" }, "date": { "type": "string", "description": "YYYY-MM-DD" }, "time": { "type": "string", "description": "HH:MM 24-hour, or `all` for an all-day event" }, "minutes": { "type": "integer" }, "id": { "type": "string", "description": "event id from a list, for move/delete" } }), &["action"]),
             def("look_up", "Search the display library's reference (components, typed keys, enums). Use before changing the display.", json!({ "query": { "type": "string" } }), &["query"]),
             def("display_state", "The live values the display has right now (weather, power, machine, calendar...).", json!({}), &[]),
+            def("ui_describe", "See the display: the current screen as data (every tile with its id, zone, title, whether it is inverted and the text it shows now), the screens that exist, and how the screen fits.", json!({}), &[]),
+            def("ui_eval", "Change the display live. `code` is TypeScript run in the display's page (the REPL); it is type-checked, applied, verified for fit, and kept, or refused with the reason (and rolled back). Use it for what the person asks you to put on the display now.", json!({ "code": { "type": "string", "description": "TypeScript, e.g. ui.screenOf(\"home\").patchTile(\"link\", { title: \"Tea\" })" }, "intent": { "type": "string", "description": "A few words: what this change is for." } }), &["code", "intent"]),
+            def("ui_query", "Read from the display without changing it: an expression evaluated in the page, e.g. ui.screenOf(\"home\").tiles() or ui.get(K.wx.temp).", json!({ "code": { "type": "string" } }), &["code"]),
+            def("ui_undo", "Undo the last live change to the display.", json!({}), &[]),
             def("start_task", "Hand a bigger job to the builder agent (change a screen, add a feed, fix a scraper). It works in a sandbox and its change is checked before it goes live. Tell the person it is on the way.", json!({ "title": { "type": "string" }, "details": { "type": "string", "description": "What is wanted, precisely." } }), &["title", "details"]),
         ]
     }
@@ -55,8 +104,10 @@ impl Tools for VoiceTools<'_> {
         match name {
             "show_screen" => {
                 let screen = str_arg(input, "name")?;
-                if !SCREENS.contains(&screen) {
-                    return Err(format!("no screen `{screen}`; the screens are {}", SCREENS.join(", ")));
+                // the screens there are now, shipped or made since: ask the display
+                let known: Vec<String> = self.display.query("ui.screenIds()").ok().and_then(|v| v["value"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())).unwrap_or_else(|| SCREENS.iter().map(|s| s.to_string()).collect());
+                if !known.iter().any(|k| k == screen) {
+                    return Err(format!("no screen `{screen}`; the screens are {}", known.join(", ")));
                 }
                 let hold = input["stay_minutes"].as_u64().map(|m| m * 60_000);
                 self.display.screen(screen, hold)?;
@@ -138,6 +189,19 @@ impl Tools for VoiceTools<'_> {
                 }
                 Ok(Value::Object(out).to_string())
             }
+            "ui_describe" => {
+                let v = self.display.query("ui.describe()")?;
+                Ok(v["value"].to_string())
+            }
+            "ui_eval" => explain_change(&self.display.eval(str_arg(input, "code")?, str_arg(input, "intent")?)),
+            "ui_query" => {
+                let v = self.display.query(str_arg(input, "code")?);
+                match explain_value(&v) {
+                    Ok(s) => Ok(s.chars().take(3000).collect()),
+                    Err(e) => Err(e),
+                }
+            }
+            "ui_undo" => explain_change(&self.display.undo()),
             "start_task" => {
                 let t = self.tasks.enqueue(now, str_arg(input, "title")?, str_arg(input, "details")?)?;
                 Ok(format!("queued task {}: {}", t.id, t.title))
@@ -171,7 +235,9 @@ mod tests {
             assert!(t.call("show_screen", &json!({ "name": "energy", "stay_minutes": 10 })).is_ok());
             assert!(t.call("show_screen", &json!({ "name": "garden" })).unwrap_err().contains("the screens are"));
             assert_eq!(m.seen.lock().unwrap().iter().filter(|r| r.1.starts_with("/screen")).count(), 1);
-            assert_eq!(m.seen.lock().unwrap()[0].1, "/screen?name=energy&hold=600000");
+            let seen = m.seen.lock().unwrap();
+            let screens: Vec<_> = seen.iter().filter(|r| r.1.starts_with("/screen")).collect();
+            assert_eq!(screens[0].1, "/screen?name=energy&hold=600000");
         });
     }
 
@@ -198,6 +264,18 @@ mod tests {
             assert_eq!(seen[1].1, "/run?cmd=cal&arg=add&arg=Dentist&arg=2026%2D11%2D02&arg=15%3A30&arg=45");
             assert_eq!(seen[2].1, "/run?cmd=note&arg=add&arg=renew%20insurance&arg=Fri");
         });
+    }
+
+    #[test]
+    fn a_change_is_reported_in_words_and_a_refusal_carries_its_reason() {
+        let ok = explain_change(&Ok(json!({ "ok": true, "seq": 12, "fit": { "fits": true, "clipped": false, "dropped": [] } }))).unwrap();
+        assert_eq!(ok, "applied (change 12). The screen fits.");
+        let crowded = explain_change(&Ok(json!({ "ok": true, "seq": 13, "fit": { "fits": false, "clipped": true, "dropped": ["x"] } }))).unwrap();
+        assert!(crowded.starts_with("applied (change 13). It does not fit"), "{crowded}");
+        let refused = explain_change(&Err(json!({ "ok": false, "rejected": true, "error": "type errors", "diagnostics": [{ "line": 1, "message": "Property 'nope' does not exist" }] }).to_string())).unwrap_err();
+        assert!(refused.contains("type errors") && refused.contains("line 1: Property 'nope'"), "{refused}");
+        assert_eq!(explain_value(&Ok(json!({ "ok": true, "value": [1, 2] }))).unwrap(), "[1,2]");
+        assert_eq!(explain_value(&Ok(json!({ "ok": false, "error": "boom" }))).unwrap_err(), "boom");
     }
 
     #[test]

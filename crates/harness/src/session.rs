@@ -92,7 +92,7 @@ impl<'a> Session<'a> {
         }
         let feed = Feed { display: self.display, activity: &self.activity };
         feed.publish();
-        let profile = Profile { model: self.model.clone(), system: prompts::voice_system(&self.context(now_ms)), max_tokens: 600, max_steps: 8 };
+        let profile = Profile { model: self.model.clone(), system: prompts::voice_system(&self.context(now_ms)), max_tokens: 600, max_steps: 16 };
         let agent = Agent { llm: self.llm, profile, watch: Some(&feed) };
         let clock = move || now_ms;
         let outcome = {
@@ -102,7 +102,7 @@ impl<'a> Session<'a> {
         trim_history(&mut self.history, KEEP_TURNS);
         let reply = match outcome {
             Ok(o) if !o.text.trim().is_empty() => o.text.trim().to_string(),
-            Ok(o) if o.truncated => "Sorry, that got away from me.".to_string(),
+            Ok(o) if o.truncated => format!("I got partway: I called {} tools and ran out of steps before I could finish.", o.calls.len()),
             Ok(_) => "Done.".to_string(),
             Err(e) => {
                 let _ = self.display.show_exchange(None, Some("Sorry, I couldn't do that."), Presence::Speaking as u8, now_ms);

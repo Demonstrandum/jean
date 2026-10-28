@@ -13,6 +13,10 @@ declare function h<K extends keyof HTMLElementTagNameMap>(tag: K, ...args: Arg[]
 declare function h(tag: string, ...args: Arg[]): HTMLElement;
 declare function frag(...vals: Child[]): DocumentFragment;
 declare function def(name: string, desc: PropertyDescriptor): any;
+/** Custom drawing: `svg(200, 80, '<path d="M0 70L50 20L100 50"/><circle cx="150" cy="40" r="10"/>')`. The markup goes inside an SVG of that size (its coordinates run
+ * 0..width, 0..height) with fill none and stroke currentColor (black, or white on an inverted tile): draw with strokes, or give a shape fill="currentColor".
+ * It shrinks to fit the space it is given and never grows past it. */
+declare function svg(w: number, ht: number, markup: string, o?: { strokeWidth?: number }): HTMLElement;
 declare function row(...a: Arg[]): any;
 declare function col(...a: Arg[]): any;
 declare function grid(cols: number, ...a: Arg[]): any;
@@ -85,7 +89,7 @@ declare function presence(people: { name: string; home: boolean }[]): any;
 /** Moon phase, 0 = new, 0.25 = first quarter, 0.5 = full, 0.75 = last quarter. The shadow is hatched, the lit side open. */
 declare function moon(phase: number, size?: any): any;
 /** A launcher-style module: label top-left, something in the middle, a count bottom-left. */
-declare function tile(label: string, body?: Child, o?: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: IconName; waves?: boolean | Parameters<typeof waves>[0]; back?: Node }): any;
+declare function tile(label: Child, body?: Child, o?: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: IconName; waves?: boolean | Parameters<typeof waves>[0]; back?: Node }): any;
 /** Compact ruled rows [left, text, right?]. The text takes the space and is cut with an ellipsis; rows share the height. */
 declare function lines(rows: [Child, Child, Child?][]): any;
 /** A shopping-list style checklist: [text, qty?, done?]. Open items are an empty square, done ones a solid one. */
@@ -271,10 +275,10 @@ declare function zonesOverlap(a: Zone, b: Zone): boolean;
 type Slot<T extends Child = Child> = T | (() => T);
 /** How a tile is dressed: fill = its body stretches, list = ruled rows, legend = title on the border, iconic = centred icon, usage = filled to a history curve. */
 type TileTone = "fill" | "list" | "legend" | "iconic" | "usage";
-interface TileSpec { readonly id: string; readonly at: Zone; readonly title: string; readonly glyph?: IconName; readonly tone?: TileTone | readonly TileTone[]; readonly inverted?: boolean | InvertWhen; readonly body?: Slot; readonly count?: Slot; readonly back?: Slot<Node>; readonly waves?: boolean | Parameters<typeof waves>[0]; readonly frameless?: boolean; readonly opens?: string; }
+interface TileSpec { readonly id: string; readonly at: Zone; readonly title: string | (() => HTMLElement); readonly glyph?: IconName; readonly tone?: TileTone | readonly TileTone[]; readonly inverted?: boolean | InvertWhen; readonly body?: Slot; readonly count?: Slot; readonly back?: Slot<Node>; readonly waves?: boolean | Parameters<typeof waves>[0]; readonly frameless?: boolean; readonly opens?: string; }
 interface ScreenSpec { readonly id: string; readonly tab?: string; readonly tiles: readonly TileSpec[]; }
 /** The handle `defineScreen` returns: read and change a screen's tiles one at a time. */
-interface ScreenHandle { readonly id: string; tiles(): readonly TileSpec[]; tile(id: string): TileSpec | undefined; setTile(spec: TileSpec): void; patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): void; removeTile(id: string): void; }
+interface ScreenHandle { readonly id: string; tiles(): readonly TileSpec[]; tile(id: string): TileSpec | undefined; setTile(spec: TileSpec): ScreenHandle; patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): ScreenHandle; removeTile(id: string): ScreenHandle; free(): string[]; }
 interface ScreenState { id: string; tab: string; tiles: readonly TileSpec[] }
 declare function toneClass(t: TileSpec["tone"]): string | undefined;
 declare function resolveBody<T extends Child>(b: Slot<T> | undefined): T | undefined;
@@ -288,6 +292,12 @@ declare function invertWhen<T>(key: Key<T>, when: (v: T | undefined) => boolean)
 declare function invertWhen<Ks extends Key<any>[]>(keys: readonly [...Ks], when: (v: Values<Ks>) => boolean): InvertWhen;
 /** Make one tile from its spec. */
 declare function tileFrom(s: TileSpec): HTMLElement;
+/** A zone as text: "A1" for one cell, "A1-B2" for a rectangle. */
+declare function zoneText(z: Zone): string;
+/** The cells of the 6 x 3 sheet that no tile covers, as "A3", "B3", ... in reading order. */
+declare function freeCells(tiles: readonly TileSpec[]): string[];
+/** What a failed layout needs to say for the next try: who sits where, and what is free. */
+declare function layoutHint(tiles: readonly TileSpec[]): string;
 declare function checkTiles(id: string, tiles: readonly TileSpec[]): void;
 /** Build a screen's DOM into the scene (its timers replace the previous screen's). */
 declare function renderScreen(id: string): void;
@@ -301,7 +311,7 @@ declare function screenHandle(id: string): ScreenHandle;
 declare function tap(x: number, y: number): string | null;
 /** The current screen as data an agent can read: every tile with its id, zone, title, whether it is inverted, and the text it shows now; plus the screens
  * that exist and how the screen fits. The words, not the pixels: what `look_up` is to the reference, this is to the display. */
-declare function describe(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; fit: FitReport };
+declare function describeScene(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; free: string[]; fit: FitReport };
 /** The tabbed screen `delta` places along the tab bar from the current one, wrapping (what a swipe asks for); null without a tab bar. A pure query like `tap`. */
 declare function step(delta: number): string | null;
 /** Show a screen now. A screen other than home returns home after `hold` ms (default: the key `K.ui.hold`, else 2 minutes; 0 stays). */
@@ -687,8 +697,9 @@ declare const ui: {
   navigation(on: boolean): any;
   defineScreen: typeof defineScreen;
   go: typeof go;
-  screenOf(id: string): ScreenHandle | undefined;
+  screenOf(id: string): ScreenHandle;
   screenIds(): any;
+  screens(): any;
   current(): any;
   selfTest: typeof selfTest;
   frames: typeof frames;

@@ -209,6 +209,11 @@ static void session(int fd) {
         return;
     }
     fprintf(stderr, "jean-tiles: connected\n");
+    /* ask for the packed 1-bit encoding (a 32nd of the bytes of Raw), and Raw as the fallback */
+    {
+        uint8_t enc[12] = {2, 0, 0, 2, 0x6A, 0x65, 0x00, 0x01, 0, 0, 0, 0};
+        if (write_all(fd, enc, sizeof enc)) return;
+    }
     if (request(fd, 0)) return;
     uint8_t *row = malloc((size_t)WIDTH * 4);
     struct pollfd p[NTILES + 2];
@@ -230,10 +235,13 @@ static void session(int fd) {
             uint8_t h[12];
             if (read_all(fd, h, 12)) goto out;
             int x = be16(h), y = be16(h + 2), w = be16(h + 4), ht = be16(h + 6);
-            if (h[8] | h[9] | h[10] | h[11]) goto out; /* only Raw */
+            int32_t enc = (int32_t)((uint32_t)h[8] << 24 | h[9] << 16 | h[10] << 8 | h[11]);
+            int is_packed = enc == 0x6A650001;
+            if (enc != 0 && !is_packed) goto out; /* Raw or the packed bits only */
             if (x + w > WIDTH || y + ht > HEIGHT) goto out;
             for (int yy = 0; yy < ht; yy++) {
-                if (read_all(fd, row, (size_t)w * 4)) goto out;
+                size_t row_len = is_packed ? (size_t)(w + 7) / 8 : (size_t)w * 4;
+                if (read_all(fd, row, row_len)) goto out;
                 int gy = y + yy, ty = gy / TH, ly = gy % TH;
                 for (int xx = 0; xx < w;) {
                     int gx = x + xx, tx = gx / TW, lx = gx % TW;
@@ -242,7 +250,9 @@ static void session(int fd) {
                     struct tile *t = &tiles[ty * COLS + tx];
                     uint16_t *dst = t->px + (size_t)ly * TW + lx;
                     for (int k = 0; k < run; k++) {
-                        uint16_t g = row[(xx + k) * 4]; /* gray to RGB565 */
+                        uint16_t g;
+                        if (is_packed) g = (row[(xx + k) / 8] >> (7 - (xx + k) % 8)) & 1 ? 255 : 0;
+                        else g = row[(xx + k) * 4]; /* gray to RGB565 */
                         dst[k] = (uint16_t)(((g >> 3) << 11) | ((g >> 2) << 5) | (g >> 3));
                     }
                     note_dirty(t, lx, ly, lx + run - 1, ly);

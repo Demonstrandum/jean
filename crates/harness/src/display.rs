@@ -40,6 +40,11 @@ impl Display {
         self.post(&format!("/eval?intent={enc}"), code)
     }
 
+    /// Undo the last journaled change.
+    pub fn undo(&self) -> Result<Value, String> {
+        self.post("/undo", "")
+    }
+
     /// A read-only evaluation in the page (rolled back, never journaled).
     pub fn query(&self, code: &str) -> Result<Value, String> {
         self.post("/query", code)

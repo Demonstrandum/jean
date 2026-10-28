@@ -47,6 +47,24 @@ fn read_exact(s: &mut TcpStream, n: usize) -> std::io::Result<Vec<u8>> {
     Ok(b)
 }
 
+/// A private encoding for 1-bit frames: the rectangle as bits, row by row, each row padded to a byte, most significant bit first, 1 = white. A viewer that
+/// lists it in SetEncodings (the tablet's does) gets a 32nd of the bytes Raw would take; any other viewer gets Raw.
+pub const ENC_PACKED: i32 = 0x6A65_0001;
+
+/// Pixels of `r` as packed bits (see `ENC_PACKED`).
+fn packed(frame: &Frame, r: Rect) -> Vec<u8> {
+    let row_bytes = r.w.div_ceil(8);
+    let mut out = vec![0u8; row_bytes * r.h];
+    for y in 0..r.h {
+        for x in 0..r.w {
+            if frame.px[(r.y + y) * frame.w + r.x + x] >= 128 {
+                out[y * row_bytes + x / 8] |= 0x80 >> (x % 8);
+            }
+        }
+    }
+    out
+}
+
 /// Pixels of `r` as the client's 32-bit little-endian BGRX (the pixel format this server announces).
 fn raw(frame: &Frame, r: Rect) -> Vec<u8> {
     let mut out = Vec::with_capacity(r.w * r.h * 4);
@@ -77,6 +95,7 @@ const SWIPE_MIN: usize = 240;
 
 fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_gesture: OnGesture) -> std::io::Result<()> {
     let mut pressed: Option<(usize, usize)> = None;
+    let mut wants_packed = false;
     s.write_all(b"RFB 003.008\n")?;
     read_exact(&mut s, 12)?;
     s.write_all(&[1, 1])?; // one security type: None
@@ -101,7 +120,8 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_gesture: OnGesture) ->
             }
             2 => {
                 let n = u16::from_be_bytes(read_exact(&mut s, 3)?[1..3].try_into().unwrap()) as usize;
-                read_exact(&mut s, 4 * n)?;
+                let list = read_exact(&mut s, 4 * n)?;
+                wants_packed = list.chunks_exact(4).any(|e| i32::from_be_bytes(e.try_into().unwrap()) == ENC_PACKED);
             }
             3 => {
                 let req = read_exact(&mut s, 9)?;
@@ -123,8 +143,13 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_gesture: OnGesture) ->
                     for v in [r.x, r.y, r.w, r.h] {
                         msg.extend_from_slice(&(v as u16).to_be_bytes());
                     }
-                    msg.extend_from_slice(&0i32.to_be_bytes()); // Raw
-                    msg.extend_from_slice(&raw(&frame, r));
+                    if wants_packed && frame.px.iter().all(|&p| p == 0 || p == 255) {
+                        msg.extend_from_slice(&ENC_PACKED.to_be_bytes());
+                        msg.extend_from_slice(&packed(&frame, r));
+                    } else {
+                        msg.extend_from_slice(&0i32.to_be_bytes()); // Raw
+                        msg.extend_from_slice(&raw(&frame, r));
+                    }
                 }
                 s.write_all(&msg)?;
                 had = Some((version, frame));
@@ -275,5 +300,30 @@ mod tests {
         pointer(&mut v, 0, 400, 520); // a swipe
         v.request(false, 16, 8); // the server has handled everything sent before this
         assert_eq!(*seen.lock().unwrap(), vec![Gesture::Tap { x: 700, y: 300 }, Gesture::Swipe { from: (1000, 500), to: (400, 520) }]);
+    }
+
+    #[test]
+    fn a_viewer_that_asks_for_packed_bits_gets_a_32nd_of_the_bytes() {
+        let mut f = Frame::white(16, 8);
+        f.px[0] = 0; // top-left black
+        f.px[9] = 0; // x=9, y=0 black
+        let screen = Screen::new(f);
+        let addr = serve("127.0.0.1:0", screen, Arc::new(|_| {})).unwrap();
+        let (mut v, _) = Viewer::connect(addr);
+        let mut m = vec![2, 0, 0, 1];
+        m.extend_from_slice(&ENC_PACKED.to_be_bytes());
+        v.0.write_all(&m).unwrap();
+        let mut req = vec![3, 0, 0, 0, 0, 0];
+        req.extend_from_slice(&16u16.to_be_bytes());
+        req.extend_from_slice(&8u16.to_be_bytes());
+        v.0.write_all(&req).unwrap();
+        let head = read_exact(&mut v.0, 4).unwrap();
+        assert_eq!(u16::from_be_bytes([head[2], head[3]]), 1);
+        let r = read_exact(&mut v.0, 12).unwrap();
+        assert_eq!(i32::from_be_bytes(r[8..12].try_into().unwrap()), ENC_PACKED);
+        let bits = read_exact(&mut v.0, 2 * 8).unwrap(); // 16 px wide = 2 bytes a row, 8 rows
+        assert_eq!(bits[0], 0b0111_1111, "the first pixel is black, the rest of the byte white");
+        assert_eq!(bits[1], 0b1011_1111, "pixel 9 is black");
+        assert_eq!(bits[2], 0xFF);
     }
 }

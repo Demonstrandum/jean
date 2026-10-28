@@ -410,12 +410,46 @@ pub fn all() -> Vec<DocItem> {
     items
 }
 
-/// Items whose name or comment mentions `query` (case-insensitive); an exact name match comes first.
+/// The items that answer `query`, best first. A query is a name ("patchTile"), or words ("tile title reactive"): each word is looked for in the item's name
+/// (most weight; an exact name most of all), its members (the methods and fields it lists), its signature, and its comment. Small words are ignored, and an
+/// item need only match some of the words, so a natural question finds something; the best matches come first.
 pub fn search(items: &[DocItem], query: &str) -> Vec<DocItem> {
-    let q = query.to_lowercase();
-    let mut hits: Vec<DocItem> = items.iter().filter(|i| i.name.to_lowercase().contains(&q) || i.doc.to_lowercase().contains(&q) || i.signature.to_lowercase().contains(&q)).cloned().collect();
-    hits.sort_by_key(|i| (i.name.to_lowercase() != q, !i.name.to_lowercase().contains(&q)));
-    hits
+    const SMALL: [&str; 14] = ["the", "an", "of", "to", "for", "and", "how", "in", "on", "is", "it", "with", "that", "do"];
+    let q = query.trim().to_lowercase();
+    let words: Vec<&str> = q.split(|c: char| !(c.is_alphanumeric() || c == '.' || c == '_')).filter(|w| w.len() >= 2 && !SMALL.contains(w)).collect();
+    if words.is_empty() {
+        return vec![];
+    }
+    let mut scored: Vec<(i32, &DocItem)> = items
+        .iter()
+        .filter_map(|i| {
+            let (name, sig, doc) = (i.name.to_lowercase(), i.signature.to_lowercase(), i.doc.to_lowercase());
+            let members = i.members.join(" ").to_lowercase();
+            let mut score = 0;
+            if name == q {
+                score += 40;
+            }
+            for w in &words {
+                if name == *w {
+                    score += 12;
+                } else if name.contains(w) {
+                    score += 6;
+                }
+                if members.contains(w) {
+                    score += 5;
+                }
+                if sig.contains(w) {
+                    score += 2;
+                }
+                if doc.contains(w) {
+                    score += 1;
+                }
+            }
+            (score > 0).then_some((score, i))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+    scored.into_iter().map(|(_, i)| i.clone()).collect()
 }
 
 /// The reference as Markdown (what `docs/reference.md` holds).
@@ -594,5 +628,19 @@ const fmt = { /** Fixed decimals. */ num: (v: number, d = 0): string => v.toFixe
         }
         let py = schema_py(&items);
         assert!(py.contains("class Sky(IntEnum)") && py.contains("Clear = 0"), "{py}");
+    }
+
+    #[test]
+    fn a_question_in_words_finds_the_right_items() {
+        let items = all();
+        let names = |q: &str| search(&items, q).iter().map(|i| i.name.clone()).collect::<Vec<_>>();
+        // an exact name first
+        assert_eq!(names("patchTile")[0], "ScreenHandle", "patchTile is a member of the screen handle: {:?}", &names("patchTile")[..3.min(names("patchTile").len())]);
+        // words, not just names
+        let q = names("how do I make a tile title update with live data");
+        assert!(q.iter().take(8).any(|n| n == "TileSpec") || q.iter().take(8).any(|n| n == "bind"), "{:?}", &q[..8.min(q.len())]);
+        assert!(names("draw a custom svg shape").iter().take(5).any(|n| n == "svg"), "{:?}", names("draw a custom svg shape"));
+        assert!(names("invert tile black when").iter().take(5).any(|n| n == "invertWhen"));
+        assert!(search(&items, "the of to").is_empty());
     }
 }

@@ -234,6 +234,17 @@ const tags = [
 const prims: Record<string, (...a: Arg[]) => HTMLElement> = {};
 for (const t of tags) prims[t] = (...a) => h(t, ...a);
 prims.bold = (...a) => h("b", ...a);
+/**
+ * Custom drawing: `svg(200, 80, '<path d="M0 70L50 20L100 50"/><circle cx="150" cy="40" r="10"/>')`. The markup goes inside an SVG of that size (its coordinates run
+ * 0..width, 0..height) with fill none and stroke currentColor (black, or white on an inverted tile): draw with strokes, or give a shape fill="currentColor".
+ * It shrinks to fit the space it is given and never grows past it.
+ */
+const svg = (w: number, ht: number, markup: string, o?: { strokeWidth?: number }): HTMLElement => {
+  const el = h("div", { class: "svgbox" });
+  const sw = o?.strokeWidth ?? 2;
+  el.innerHTML = `<svg width="${Number(w)}" height="${Number(ht)}" viewBox="0 0 ${Number(w)} ${Number(ht)}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${String(markup)}</svg>`;
+  return el;
+};
 prims.italic = (...a) => h("i", ...a);
 
 // ------------------------------------------------------------ components
@@ -647,7 +658,7 @@ const moon = (phase: number, size = 64) => {
 // ------------------------------------------- modules: tiles, dials, rulers
 
 /** A launcher-style module: label top-left, something in the middle, a count bottom-left. */
-const tile = (label: string, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: IconName; waves?: boolean | Parameters<typeof waves>[0]; back?: Node } = {}) =>
+const tile = (label: Child, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: IconName; waves?: boolean | Parameters<typeof waves>[0]; back?: Node } = {}) =>
   h("section", { class: `tile${o.inverted ? " inv" : ""}${o.bleed ? " bleed" : ""}${o.waves ? " has-waves" : ""}${o.back ? " has-back" : ""}${o.tone ? " " + o.tone : ""}` },
     o.waves ? waves(o.waves === true ? {} : o.waves) : null,
     o.back ? h("div", { class: "tile-back" }, o.back) : null,
@@ -1607,7 +1618,8 @@ interface TileSpec {
   /** Stable identifier, unique within the screen: how you address the tile later. */
   readonly id: string;
   readonly at: Zone;
-  readonly title: string;
+  /** The tile's title: text, or a binding (`bind(K.shop.items, (items) => ...)`) that keeps it up to date. */
+  readonly title: string | (() => HTMLElement);
   readonly glyph?: IconName;
   readonly tone?: TileTone | readonly TileTone[];
   /** Inverted (white on black): always (`true`), or only while a condition on live keys holds: `inverted: invertWhen(K.claude.state, (s) => s !== Presence.Idle)`. */
@@ -1635,11 +1647,14 @@ interface ScreenHandle {
   readonly id: string;
   tiles(): readonly TileSpec[];
   tile(id: string): TileSpec | undefined;
-  /** Add a tile, or replace the one with the same id. */
-  setTile(spec: TileSpec): void;
-  /** Change fields of one tile. */
-  patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): void;
-  removeTile(id: string): void;
+  /** Add a tile, or replace the one with the same id. Returns the handle, so changes chain: `.removeTile("a").setTile(spec)`. */
+  setTile(spec: TileSpec): ScreenHandle;
+  /** Change fields of one tile. Returns the handle. */
+  patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): ScreenHandle;
+  /** Remove a tile. Returns the handle. */
+  removeTile(id: string): ScreenHandle;
+  /** The cells of the 6 x 3 sheet no tile covers, as "A3", "B3", ...: where a new tile can go without moving another. */
+  free(): string[];
 }
 
 interface ScreenState { id: string; tab: string; tiles: readonly TileSpec[] }
@@ -1665,7 +1680,7 @@ function invertWhen(keys: any, when: (v: any) => boolean): InvertWhen { return {
 /** Make one tile from its spec. */
 const tileFrom = (s: TileSpec): HTMLElement => {
   if (s.frameless) { const bare = center(resolveBody(s.body)); bare.dataset.tile = s.id; return place(bare, s.at); }
-  const node = tile(s.title, resolveBody(s.body), { count: resolveBody(s.count), inverted: s.inverted === true, tone: toneClass(s.tone), glyph: s.glyph, waves: s.waves, back: resolveBody(s.back) });
+  const node = tile(typeof s.title === "function" ? s.title() : s.title, resolveBody(s.body), { count: resolveBody(s.count), inverted: s.inverted === true, tone: toneClass(s.tone), glyph: s.glyph, waves: s.waves, back: resolveBody(s.back) });
   node.dataset.tile = s.id;
   if (typeof s.inverted === "object") {
     const w = s.inverted;
@@ -1674,12 +1689,28 @@ const tileFrom = (s: TileSpec): HTMLElement => {
   return place(node, s.at);
 };
 
+/** A zone as text: "A1" for one cell, "A1-B2" for a rectangle. */
+const zoneText = (z: Zone): string => (z.from.col === z.to.col && z.from.row === z.to.row ? `${Col[z.from.col]}${z.from.row}` : `${Col[z.from.col]}${z.from.row}-${Col[z.to.col]}${z.to.row}`);
+
+/** The cells of the 6 x 3 sheet that no tile covers, as "A3", "B3", ... in reading order. */
+function freeCells(tiles: readonly TileSpec[]): string[] {
+  const out: string[] = [];
+  for (const row of [1, 2, 3] as const) for (let c = 0; c < 6; c++) if (!tiles.some((t) => t.at.from.col <= c && c <= t.at.to.col && t.at.from.row <= row && row <= t.at.to.row)) out.push(`${Col[c]}${row}`);
+  return out;
+}
+
+/** What a failed layout needs to say for the next try: who sits where, and what is free. */
+const layoutHint = (tiles: readonly TileSpec[]): string => {
+  const free = freeCells(tiles);
+  return ` Tiles: ${tiles.map((x) => `${x.id} ${zoneText(x.at)}`).join(", ")}. Free cells: ${free.length ? free.join(", ") : "none (the screen is full: shrink or remove a tile first)"}.`;
+};
+
 function checkTiles(id: string, tiles: readonly TileSpec[]): void {
   const seen = new Map<string, TileSpec>();
   for (const t of tiles) {
     if (seen.has(t.id)) throw new Error(`screen "${id}": two tiles are called "${t.id}"`);
     if (t.at.from.col > t.at.to.col || t.at.from.row > t.at.to.row) throw new Error(`screen "${id}": tile "${t.id}" has an inverted zone`);
-    for (const o of seen.values()) if (zonesOverlap(o.at, t.at)) throw new Error(`screen "${id}": tiles "${o.id}" and "${t.id}" overlap at ${zoneName(t.at)}`);
+    for (const o of seen.values()) if (zonesOverlap(o.at, t.at)) throw new Error(`screen "${id}": tiles "${o.id}" (${zoneText(o.at)}) and "${t.id}" (${zoneText(t.at)}) overlap.${layoutHint(tiles.filter((x) => x.id !== t.id))}`);
     seen.set(t.id, t);
   }
 }
@@ -1711,18 +1742,21 @@ function defineScreen(spec: ScreenSpec): ScreenHandle {
 function screenHandle(id: string): ScreenHandle {
   const st = () => { const s = screenDefs.get(id); if (!s) throw new Error(`no screen "${id}"`); return s; };
   const write = (tiles: readonly TileSpec[]) => defineScreen({ id, tab: st().tab, tiles });
-  return {
+  const handle: ScreenHandle = {
     id,
     tiles: () => st().tiles,
     tile: (tid) => st().tiles.find((t) => t.id === tid),
-    setTile: (spec) => { const t = st().tiles; write(t.some((x) => x.id === spec.id) ? t.map((x) => (x.id === spec.id ? spec : x)) : [...t, spec]); },
+    setTile: (spec) => { const t = st().tiles; write(t.some((x) => x.id === spec.id) ? t.map((x) => (x.id === spec.id ? spec : x)) : [...t, spec]); return handle; },
     patchTile: (tid, patch) => {
       const t = st().tiles, old = t.find((x) => x.id === tid);
-      if (!old) throw new Error(`screen "${id}" has no tile "${tid}"`);
+      if (!old) throw new Error(`screen "${id}" has no tile "${tid}"; its tiles are ${st().tiles.map((x) => x.id).join(", ")}`);
       write(t.map((x) => (x === old ? { ...old, ...patch } : x)));
+      return handle;
     },
-    removeTile: (tid) => { const t = st().tiles; if (!t.some((x) => x.id === tid)) throw new Error(`screen "${id}" has no tile "${tid}"`); write(t.filter((x) => x.id !== tid)); },
+    free: () => freeCells(st().tiles),
+    removeTile: (tid) => { const t = st().tiles; if (!t.some((x) => x.id === tid)) throw new Error(`screen "${id}" has no tile "${tid}"; its tiles are ${t.map((x) => x.id).join(", ")}`); write(t.filter((x) => x.id !== tid)); return handle; },
   };
+  return handle;
 }
 
 /**
@@ -1742,13 +1776,16 @@ function tap(x: number, y: number): string | null {
  * The current screen as data an agent can read: every tile with its id, zone, title, whether it is inverted, and the text it shows now; plus the screens
  * that exist and how the screen fits. The words, not the pixels: what `look_up` is to the reference, this is to the display.
  */
-function describeScene(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; fit: FitReport } {
+function describeScene(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; free: string[]; fit: FitReport } {
   const spec = currentScreen ? screenDefs.get(currentScreen) : undefined;
   const tiles = [...root.querySelectorAll<HTMLElement>("[data-tile]")].map((el) => {
     const t = spec?.tiles.find((x) => x.id === el.dataset.tile);
-    return { id: el.dataset.tile!, zone: t ? zoneName(t.at) : "", title: t?.title ?? "", inverted: el.classList.contains("inv"), text: (el.querySelector(".tile-body")?.textContent ?? el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 240) };
+    const words = (n: Element | null): string => { const out: string[] = []; if (n) { const w = document.createTreeWalker(n, NodeFilter.SHOW_TEXT); for (let x = w.nextNode(); x; x = w.nextNode()) out.push(x.textContent ?? ""); } return out.join(" ").replace(/\s+/g, " ").trim().slice(0, 240); };
+    const cell = (c: Cell) => `${Col[c.col]}${c.row}`;
+    const z = t ? (t.at.from.col === t.at.to.col && t.at.from.row === t.at.to.row ? cell(t.at.from) : `${cell(t.at.from)}-${cell(t.at.to)}`) : "";
+    return { id: el.dataset.tile!, zone: z, title: (el.querySelector(".tile-label")?.textContent ?? "").trim(), inverted: el.classList.contains("inv"), text: words(el.querySelector(".tile-body") ?? el) };
   });
-  return { screen: currentScreen, screens: [...screenDefs.keys()], tiles, fit: adapt() };
+  return { screen: currentScreen, screens: [...screenDefs.keys()], tiles, free: spec ? freeCells(spec.tiles) : [], fit: adapt() };
 }
 
 /** The tabbed screen `delta` places along the tab bar from the current one, wrapping (what a swipe asks for); null without a tab bar. A pure query like `tap`. */
@@ -2170,6 +2207,8 @@ const style = h("style", `${fontFaceCss()}
 #screen .band.top{margin-top:-26px;padding-top:9px}
 #screen .band.bottom{margin-bottom:-30px;padding-bottom:12px}
 #screen .band span{display:inline-flex;align-items:center}
+#screen .svgbox{display:flex;min-width:0;min-height:0;max-width:100%;max-height:100%}
+#screen .svgbox svg{display:block;max-width:100%;max-height:100%;height:auto}
 #screen .statusbar{display:flex;align-items:stretch;border:1px solid #000;height:24px;font:600 12.5px var(--sans);letter-spacing:.06em;text-transform:uppercase}
 #screen .statusbar>*{display:flex;align-items:center;gap:6px;padding:0 10px;white-space:nowrap}
 #screen .statusbar>*+*{border-left:1px solid #000}
@@ -2912,7 +2951,11 @@ const ui = {
   /** Turn the server-driven navigation (the key K.ui.screen) off or on: a page that shows something else (a gallery sample) turns it off. */
   navigation: (on: boolean) => { navigationOn = on; },
   /** Screens and the tab bar: defineScreen({id, tab, tiles}) go(id) screenOf(id).patchTile(...) screenIds() current() */
-  defineScreen, go, screenOf: (id: string): ScreenHandle | undefined => (screenDefs.has(id) ? screenHandle(id) : undefined), screenIds: () => [...screenDefs.keys()], current: () => currentScreen,
+  defineScreen, go,
+  /** The handle of a screen (read and change its tiles one at a time); an unknown id is an error that lists the screens there are. */
+  screenOf: (id: string): ScreenHandle => { if (!screenDefs.has(id)) throw new Error(`no screen "${id}"; the screens are ${[...screenDefs.keys()].join(", ")}`); return screenHandle(id); },
+  /** The ids of the screens, in tab order. */
+  screenIds: () => [...screenDefs.keys()], screens: () => [...screenDefs.keys()], current: () => currentScreen,
   /** Show every screen with sample data and report how each fits (run inside a query so the DOM is restored). */
   selfTest, frames, docs,
   /** The current screen as data: its tiles (id, zone, title, inverted, text now), the screens that exist, and the fit. How an agent sees the display. */
@@ -2930,7 +2973,7 @@ const ui = {
 const exported: Record<string, unknown> = {
   ...prims, row, col, grid, box, card, big, heading, divider, badge, stat, list, table, kv, progress,
   bars, sparkline, agenda, weather, md, clock, countdown, live,
-  boxNumber, boxExpression, boxClock, BoxOp, BoxLayout, usageFill, chip, tileFrom, invertWhen, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
+  boxNumber, boxExpression, boxClock, BoxOp, BoxLayout, usageFill, chip, tileFrom, invertWhen, svg, feed, bind, Col, Z, zone, Tier, Minute, State, Trend, Link, sig, defineKey, lines, checklist, pane, cursor, spinner, liveTimer, typewriter, countUp, stream,
   icon, weatherIcon, say, sunArc, hourly, habitGrid, timerRing, tearoff, note, presence, moon,
   tile, levelTile, dayDial, ruler, statStrip, pills, slider, menu, device, hero,
   panel, meta, claudeLine, tilegrid, dotClock, dayStrip, timeline, areaChart,

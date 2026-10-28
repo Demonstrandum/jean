@@ -42,6 +42,35 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 - The builder promoting a change automatically (`JEAN_APPROVAL=auto`) has only run against fakes; the live test stops at "needs approval".
 - Sensors beyond Home Assistant (GPIO, I²C) are not written.
 
+## The assistant driving the display (the live REPL)
+
+The voice agent has four tools besides the household ones, so a spoken request can change the display itself, live, with no builder and no restart:
+
+| tool | does |
+|---|---|
+| `ui_describe` | the current screen as data: each tile's id, zone, title, whether it is inverted, the text it shows, the free cells, the screens there are, how it fits |
+| `ui_eval` | TypeScript run in the display's page: type-checked, applied, verified for fit, journaled (so it persists and replays), or refused with the reason and nothing changed |
+| `ui_query` | read-only evaluation in the page (`ui.screenOf("home").tiles()`, `ui.get(K.wx.temp)`) |
+| `ui_undo` | undo the last change |
+
+`show_screen` shows any screen that exists now, including ones the agent made. The prompt (`prompts.rs`, `REPL_GUIDE`) gives the grid, the recipes (change, add, remove a tile; a new screen; live `bind`ings; `invertWhen`; `svg` drawing) and the rule: use `ui_eval` for what is wanted now, `start_task` for a new data source or anything that touches files.
+
+**Is it intuitive enough for a model?** `crates/harness/tests/ui_trials.rs` is the test of that. Each trial gives a real Claude (the logged-in `claude` program, the same JSON-in-prompt tool loop as in production) a request on a fresh scratch display, then checks the display's actual state afterwards. If a trial fails the API is at fault, not the model: the fix goes into the library, the errors or the prompt.
+
+```
+cargo test -p harness --test ui_trials -- --ignored --nocapture
+JEAN_TRIALS=retitle,undo cargo test ...          # some of them
+JEAN_TRIAL_MODEL=claude-sonnet-5-5 cargo test ... # a model
+```
+
+The eleven trials: retitle a tile; put up a message; make a screen and show it; replace a tile with a drawn line chart; turn a tile black while live carbon intensity is above 100 (the check pushes values and watches the tile); a tile title that tracks the live shopping list; undo in a second turn; a chart of the live forecast on a full screen; a three-tile screen; take a tile out and use the space; a long text that must fit. All eleven pass, in 2 to 7 tool calls and 16 to 43 seconds each.
+
+What the first runs taught, all fixed because the agents' guesses were reasonable and the API did not meet them: a fixed list of screen names made `show_screen` refuse a screen the agent had just made; `look_up` returned nothing for a question in words (it now ranks words over names, members, signatures and comments); a tile `title` could not be a `bind`; `removeTile(...).setTile(...)` threw because methods returned nothing (they chain now); `ui.screens()` did not exist; `ui.screenOf` of an unknown id was an opaque TypeError (it names the screens); and a refused layout said only "overlap at A1" and the agent spent 17 steps guessing zones (it now lists who is where and which cells are free, and `ui.describe()` and `screenOf(id).free()` give the free cells up front).
+
+## The Claude tile shows the work
+
+While the assistant is busy the home Claude tile turns black (`inverted: invertWhen(K.claude.state, ...)`) and narrates: the state with a blinking cursor, what it heard, the steps as they run (a solid square when done, open while running, crossed if it failed), and what it says. The harness publishes the typed keys `claude.state` (`Presence`: Idle, Listening, Thinking, Speaking, Working), `claude.heard`, `claude.say`, `claude.steps` and `claude.task` as it goes: the runner shows transcription as the first step, the agent loop reports each tool start and end (`agent::Watch`, `activity::Feed`), and the builder worker shows its task title with `Working`. The trials print the live feed of a real run, for example `ui_describe✓ ui_eval✗ look_up✓ ui_eval… ui_eval✓ show_screen✓`. Not run live yet: the builder's `Working` display and a real microphone transcription step.
+
 ## reMarkable 2 as the screen
 
 The tablet runs the **"Jean (tiles)"** AppLoad app (`crates/eink/device/tiles` + `jean-tiles.c`): a QML front end that lays the screen out as 12x16 small framebuffer items, and a backend that is a minimal VNC client for `eink-serve`, writing each frame only into the tiles it changes and sending touches back as VNC pointer events. (`jean-view.c` is the older one-big-framebuffer version, kept for reference: it works, but see below.)

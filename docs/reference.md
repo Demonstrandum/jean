@@ -48,6 +48,16 @@ frag(...vals: Child[]): DocumentFragment
 def(name: string, desc: PropertyDescriptor)
 ```
 
+### `svg`
+
+```ts
+svg(w: number, ht: number, markup: string, o?: { strokeWidth?: number }): HTMLElement
+```
+
+Custom drawing: `svg(200, 80, '<path d="M0 70L50 20L100 50"/><circle cx="150" cy="40" r="10"/>')`. The markup goes inside an SVG of that size (its coordinates run
+0..width, 0..height) with fill none and stroke currentColor (black, or white on an inverted tile): draw with strokes, or give a shape fill="currentColor".
+It shrinks to fit the space it is given and never grows past it.
+
 ### `row`
 
 ```ts
@@ -405,7 +415,7 @@ Moon phase, 0 = new, 0.25 = first quarter, 0.5 = full, 0.75 = last quarter. The 
 ### `tile`
 
 ```ts
-tile(label: string, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: IconName; waves?: boolean | Parameters<typeof waves>[0]; back?: Node } = {})
+tile(label: Child, body?: Child, o: { count?: Child; inverted?: boolean; bleed?: boolean; tone?: string; glyph?: IconName; waves?: boolean | Parameters<typeof waves>[0]; back?: Node } = {})
 ```
 
 A launcher-style module: label top-left, something in the middle, a count bottom-left.
@@ -1080,6 +1090,30 @@ tileFrom(s: TileSpec): HTMLElement
 
 Make one tile from its spec.
 
+### `zoneText`
+
+```ts
+zoneText(z: Zone): string
+```
+
+A zone as text: "A1" for one cell, "A1-B2" for a rectangle.
+
+### `freeCells`
+
+```ts
+function freeCells(tiles: readonly TileSpec[]): string[]
+```
+
+The cells of the 6 x 3 sheet that no tile covers, as "A3", "B3", ... in reading order.
+
+### `layoutHint`
+
+```ts
+layoutHint(tiles: readonly TileSpec[]): string
+```
+
+What a failed layout needs to say for the next try: who sits where, and what is free.
+
 ### `checkTiles`
 
 ```ts
@@ -1119,10 +1153,10 @@ What a tap at a point of the scene (px, as laid out) should show, or null. In th
 tile under it. On any other screen: home. A pure query: the page never reacts to touch by itself (it is display-only); whoever relays a touch,
 such as the e-ink server, asks here and then navigates with `POST /screen`.
 
-### `describe`
+### `describeScene`
 
 ```ts
-function describe(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; fit: FitReport }
+function describeScene(): { screen: string | null; screens: string[]; tiles: { id: string; zone: string; title: string; inverted: boolean; text: string }[]; free: string[]; fit: FitReport }
 ```
 
 The current screen as data an agent can read: every tile with its id, zone, title, whether it is inverted, and the text it shows now; plus the screens
@@ -1601,13 +1635,23 @@ Turn the server-driven navigation (the key K.ui.screen) off or on: a page that s
 ### `ui.screenOf`
 
 ```ts
-ui.screenOf(id: string): ScreenHandle | undefined
+ui.screenOf(id: string): ScreenHandle
 ```
+
+The handle of a screen (read and change its tiles one at a time); an unknown id is an error that lists the screens there are.
 
 ### `ui.screenIds`
 
 ```ts
 ui.screenIds()
+```
+
+The ids of the screens, in tab order.
+
+### `ui.screens`
+
+```ts
+ui.screens()
 ```
 
 ### `ui.current`
@@ -2067,6 +2111,14 @@ key: defineKey
 
 Declare a typed key (the catalogue is K.*).
 
+### `ui.describe`
+
+```ts
+describe: describeScene
+```
+
+The current screen as data: its tiles (id, zone, title, inverted, text now), the screens that exist, and the fit. How an agent sees the display.
+
 ### `label`
 
 ```ts
@@ -2320,7 +2372,7 @@ interface TileSpec
 
 - `readonly id: string;`
 - `readonly at: Zone;`
-- `readonly title: string;`
+- `readonly title: string | (() => HTMLElement);`
 - `readonly glyph?: IconName;`
 - `readonly tone?: TileTone | readonly TileTone[];`
 - `readonly inverted?: boolean | InvertWhen;`
@@ -2352,9 +2404,10 @@ The handle `defineScreen` returns: read and change a screen's tiles one at a tim
 - `readonly id: string;`
 - `tiles(): readonly TileSpec[];`
 - `tile(id: string): TileSpec | undefined;`
-- `setTile(spec: TileSpec): void;`
-- `patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): void;`
-- `removeTile(id: string): void;`
+- `setTile(spec: TileSpec): ScreenHandle;`
+- `patchTile(id: string, patch: Partial<Omit<TileSpec, "id">>): ScreenHandle;`
+- `removeTile(id: string): ScreenHandle;`
+- `free(): string[];`
 
 ### `ScreenState`
 
