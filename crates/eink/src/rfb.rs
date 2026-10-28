@@ -77,6 +77,12 @@ fn raw(frame: &Frame, r: Rect) -> Vec<u8> {
     out
 }
 
+/// Milliseconds since the first call: one clock for the debug lines of the server's stages.
+pub fn clock_ms() -> u128 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis()
+}
+
 /// What a finger did on the panel, in frame pixels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Gesture {
@@ -93,9 +99,10 @@ pub type OnGesture = Arc<dyn Fn(Gesture) + Send + Sync>;
 const TAP_SLOP: usize = 60;
 const SWIPE_MIN: usize = 240;
 
+/// One client. Two threads: this one answers framebuffer requests (waiting for the screen to change when it is asked for what changed), and a reader
+/// that takes everything the client sends. They have to be apart: while this thread waits for a frame to change it reads nothing, so with one thread a
+/// touch was not even seen until the next change of the screen, which made a tap's response anywhere from a moment to a second late.
 fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_gesture: OnGesture) -> std::io::Result<()> {
-    let mut pressed: Option<(usize, usize)> = None;
-    let mut wants_packed = false;
     s.write_all(b"RFB 003.008\n")?;
     read_exact(&mut s, 12)?;
     s.write_all(&[1, 1])?; // one security type: None
@@ -112,75 +119,95 @@ fn serve_client(mut s: TcpStream, screen: Arc<Screen>, on_gesture: OnGesture) ->
     init.extend_from_slice(&(name.len() as u32).to_be_bytes());
     init.extend_from_slice(name);
     s.write_all(&init)?;
-    let mut had: Option<(u64, Frame)> = None;
-    loop {
-        match read_exact(&mut s, 1)?[0] {
-            0 => {
-                read_exact(&mut s, 19)?; // SetPixelFormat: the client's wishes are ignored, the announced format is always used
-            }
-            2 => {
-                let n = u16::from_be_bytes(read_exact(&mut s, 3)?[1..3].try_into().unwrap()) as usize;
-                let list = read_exact(&mut s, 4 * n)?;
-                wants_packed = list.chunks_exact(4).any(|e| i32::from_be_bytes(e.try_into().unwrap()) == ENC_PACKED);
-            }
-            3 => {
-                let req = read_exact(&mut s, 9)?;
-                let incremental = req[0] != 0;
-                // wait for something to send: a full request is answered at once, an incremental one when the frame changes
-                let mut st = screen.state.lock().unwrap();
-                while incremental && had.as_ref().is_some_and(|(v, _)| *v == st.0) {
-                    st = screen.changed.wait_timeout(st, Duration::from_secs(30)).unwrap().0;
+
+    let (requests, asked) = std::sync::mpsc::channel::<bool>();
+    let wants_packed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut reader = s.try_clone()?;
+    let reader_packed = wants_packed.clone();
+    std::thread::spawn(move || -> std::io::Result<()> {
+        let mut pressed: Option<(usize, usize)> = None;
+        loop {
+            match read_exact(&mut reader, 1)?[0] {
+                0 => {
+                    read_exact(&mut reader, 19)?; // SetPixelFormat: the client's wishes are ignored, the announced format is always used
                 }
-                let (version, frame) = (st.0, st.1.clone());
-                drop(st);
-                let rects = match (&had, incremental) {
-                    (Some((_, old)), true) => damage_rects(old, &frame),
-                    _ => vec![Rect { x: 0, y: 0, w: frame.w, h: frame.h }],
-                };
-                let mut msg = vec![0, 0];
-                msg.extend_from_slice(&(rects.len() as u16).to_be_bytes());
-                for r in rects {
-                    for v in [r.x, r.y, r.w, r.h] {
-                        msg.extend_from_slice(&(v as u16).to_be_bytes());
-                    }
-                    if wants_packed && frame.px.iter().all(|&p| p == 0 || p == 255) {
-                        msg.extend_from_slice(&ENC_PACKED.to_be_bytes());
-                        msg.extend_from_slice(&packed(&frame, r));
-                    } else {
-                        msg.extend_from_slice(&0i32.to_be_bytes()); // Raw
-                        msg.extend_from_slice(&raw(&frame, r));
+                2 => {
+                    let n = u16::from_be_bytes(read_exact(&mut reader, 3)?[1..3].try_into().unwrap()) as usize;
+                    let list = read_exact(&mut reader, 4 * n)?;
+                    reader_packed.store(list.chunks_exact(4).any(|e| i32::from_be_bytes(e.try_into().unwrap()) == ENC_PACKED), std::sync::atomic::Ordering::Relaxed);
+                }
+                3 => {
+                    let req = read_exact(&mut reader, 9)?;
+                    if requests.send(req[0] != 0).is_err() {
+                        return Ok(());
                     }
                 }
-                s.write_all(&msg)?;
-                had = Some((version, frame));
-            }
-            4 => {
-                read_exact(&mut s, 7)?; // key event
-            }
-            5 => {
-                let p = read_exact(&mut s, 5)?; // pointer event: button mask, x, y
-                let (x, y) = (u16::from_be_bytes([p[1], p[2]]) as usize, u16::from_be_bytes([p[3], p[4]]) as usize);
-                match (p[0] & 1 != 0, pressed) {
-                    (true, None) => pressed = Some((x, y)),
-                    (false, Some((px, py))) => {
-                        pressed = None;
-                        let far = px.abs_diff(x).max(py.abs_diff(y));
-                        if far <= TAP_SLOP {
-                            on_gesture(Gesture::Tap { x: px, y: py });
-                        } else if far >= SWIPE_MIN {
-                            on_gesture(Gesture::Swipe { from: (px, py), to: (x, y) });
+                4 => {
+                    read_exact(&mut reader, 7)?; // key event
+                }
+                5 => {
+                    let p = read_exact(&mut reader, 5)?; // pointer event: button mask, x, y
+                    let (x, y) = (u16::from_be_bytes([p[1], p[2]]) as usize, u16::from_be_bytes([p[3], p[4]]) as usize);
+                    match (p[0] & 1 != 0, pressed) {
+                        (true, None) => pressed = Some((x, y)),
+                        (false, Some((px, py))) => {
+                            pressed = None;
+                            let far = px.abs_diff(x).max(py.abs_diff(y));
+                            if far <= TAP_SLOP {
+                                on_gesture(Gesture::Tap { x: px, y: py });
+                            } else if far >= SWIPE_MIN {
+                                on_gesture(Gesture::Swipe { from: (px, py), to: (x, y) });
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
+                6 => {
+                    let n = u32::from_be_bytes(read_exact(&mut reader, 7)?[3..7].try_into().unwrap()) as usize;
+                    read_exact(&mut reader, n.min(1 << 20))?; // client cut text
+                }
+                other => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("unknown client message {other}"))),
             }
-            6 => {
-                let n = u32::from_be_bytes(read_exact(&mut s, 7)?[3..7].try_into().unwrap()) as usize;
-                read_exact(&mut s, n.min(1 << 20))?; // client cut text
-            }
-            other => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("unknown client message {other}"))),
         }
+    });
+
+    let mut had: Option<(u64, Frame)> = None;
+    while let Ok(incremental) = asked.recv() {
+        // a full request is answered at once, an incremental one when the frame changes
+        let mut st = screen.state.lock().unwrap();
+        while incremental && had.as_ref().is_some_and(|(v, _)| *v == st.0) {
+            st = screen.changed.wait_timeout(st, Duration::from_secs(30)).unwrap().0;
+        }
+        let (version, frame) = (st.0, st.1.clone());
+        drop(st);
+        let rects = match (&had, incremental) {
+            (Some((_, old)), true) => damage_rects(old, &frame),
+            _ => vec![Rect { x: 0, y: 0, w: frame.w, h: frame.h }],
+        };
+        let packed_ok = wants_packed.load(std::sync::atomic::Ordering::Relaxed) && frame.px.iter().all(|&p| p == 0 || p == 255);
+        let mut msg = vec![0, 0];
+        msg.extend_from_slice(&(rects.len() as u16).to_be_bytes());
+        for r in rects {
+            for v in [r.x, r.y, r.w, r.h] {
+                msg.extend_from_slice(&(v as u16).to_be_bytes());
+            }
+            if packed_ok {
+                msg.extend_from_slice(&ENC_PACKED.to_be_bytes());
+                msg.extend_from_slice(&packed(&frame, r));
+            } else {
+                msg.extend_from_slice(&0i32.to_be_bytes()); // Raw
+                msg.extend_from_slice(&raw(&frame, r));
+            }
+        }
+        let (n_rects, bytes) = (u16::from_be_bytes([msg[2], msg[3]]), msg.len());
+        let t_send = std::time::Instant::now();
+        s.write_all(&msg)?;
+        if n_rects > 40 && std::env::var_os("EINK_DEBUG").is_some() {
+            eprintln!("eink-serve: sent {n_rects} rects, {bytes} bytes in {} ms (at {} ms)", t_send.elapsed().as_millis(), clock_ms());
+        }
+        had = Some((version, frame));
     }
+    Ok(())
 }
 
 /// Listen on `addr` and serve `screen` to every client. Returns the address actually bound.

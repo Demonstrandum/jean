@@ -79,11 +79,11 @@ The tablet runs the **"Jean (tiles)"** AppLoad app (`crates/eink/device/tiles` +
 
 **Why the QML counter-scales.** AppLoad v0.4.2 gives an app a fixed 1620x2160 canvas and scales it by 0.8667 onto the rM2's 1404x1872, which resamples a dither into mush and does not fit a 1404x1872 layout. `main.qml` measures the canvas on the screen and puts the tile grid in a container with the inverse scale, at the screen's top-left, so one tile pixel is one panel pixel. A tile app must be *maximized* (a plain tap on its icon in AppLoad; press-and-hold makes a floating window).
 
-**Mac side** (the tablet is at 10.11.99.1 over USB, the Mac at 10.11.99.8):
+**Mac side** (the tablet is at 10.11.99.1 over USB, the Mac at 10.11.99.8; build `eink-serve` with `--release`: the debug build takes a second to dither and diff a frame):
 
 ```
 cargo run -p preview -- 127.0.0.1:8788 display-state
-cargo run -p eink --bin eink-serve -- --panel rm2-turned-ccw --listen 0.0.0.0:5911
+cargo run --release -p eink --bin eink-serve -- --panel rm2-turned-ccw --listen 0.0.0.0:5911
 ```
 
 `--panel rm2-turned-ccw` is the tablet held in landscape (`rm2-turned-cw` for the other way). The scene is 800x600 there (4:3, edge to edge) and is sent 1-bit, dithered in independent 64x64 blocks so a change never re-rolls dots elsewhere, as one small rectangle per changed block. `EINK_DEBUG=1` logs how much changes per frame; `--dump out.png` writes the first frame.
@@ -95,6 +95,6 @@ cargo run -p eink --bin eink-serve -- --panel rm2-turned-ccw --listen 0.0.0.0:59
 - xovi is tethered: after a reboot run `/home/root/xovi/start` over ssh (it restarts the UI); AppLoad scans its apps and registers their resources then, so restart it after changing an app. Open AppLoad from the left menu and tap Jean (tiles).
 - `IdleSuspendDelay=86400000` in `xochitl.conf` keeps the tablet from sleeping (backup: `/home/root/xochitl.conf.bak`).
 
-**Touch** is relayed, the page stays display-only: a tap on a tab shows its screen; on home a tap on a tile shows the screen it `opens`; on any other screen a tap goes home; a swipe across the screen steps to the next (left) or previous (right) tab. `eink-serve` maps the touch to the scene, asks the page (`ui.tap`, `ui.step`), switches it with `ui.go` and sends the new frame at once. `crates/eink/device/touch.c` puts a finger on the tablet's touchscreen from the shell (`touch tap X Y`, `touch swipe X0 Y0 X1 Y1`, screen pixels), which is how the whole path was driven and checked on the real panel; `crates/eink/tools/touch_probe.py` plays the tablet's part against a running `eink-serve` and times each response.
+**Touch** is relayed, the page stays display-only: a tap on a tab shows its screen; on home a tap on a tile shows the screen it `opens`; on any other screen a tap goes home; a swipe across the screen steps to the next (left) or previous (right) tab. `eink-serve` maps the touch to the scene, asks the page (`ui.tap`, `ui.step`), switches it with `ui.go` and sends the new frame at once. `crates/eink/device/touch.c` puts a finger on the tablet's touchscreen from the shell (`touch tap X Y`, `touch swipe X0 Y0 X1 Y1`, screen pixels), which is how the whole path was driven and checked on the real panel; `crates/eink/tools/touch_probe.py` plays the tablet's part against a running `eink-serve` and times each response; `crates/eink/tools/latency.py` injects touches on the tablet and reads xochitl's own timestamps (microsecond `journalctl -o short-precise`, with `jean-tiles` logging when a release is sent and when a frame arrives) to measure touch-to-panel latency on the tablet's clock. Measured: 460 to 520 ms for a tap, 650 to 720 ms for a swipe (which includes the drag itself), from 1.7 to 3.5 s before two fixes: a release build of the server (a frame was ready after 0.2 s, not 0.85 s) and a server that reads a client's touches while waiting for the screen to change (with one thread per client a touch was not read until the next change of the screen).
 
 Weather comes from Open-Meteo, with MET Norway as the fallback when its daily quota is spent, the last good reading kept on disk, and sunrise/sunset computed locally so the day dial never depends on the network.

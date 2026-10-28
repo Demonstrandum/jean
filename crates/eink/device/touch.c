@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 struct ev { uint32_t sec, usec; uint16_t type, code; int32_t value; }; /* the 32-bit ARM kernel's struct input_event */
@@ -52,16 +53,26 @@ static void up(void) {
     put(EV_SYN, SYN_REPORT, 0);
 }
 
+/* print when the finger went down, on the same clock and in the same form as xochitl's log lines: HH:MM:SS.mmm */
+static void stamp(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    struct tm tm;
+    localtime_r(&ts.tv_sec, &tm);
+    printf("touch at %02d:%02d:%02d.%03d\n", tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(ts.tv_nsec / 1000000));
+    fflush(stdout);
+}
+
 int main(int argc, char **argv) {
     fd = open(getenv("TOUCH_DEV") ? getenv("TOUCH_DEV") : "/dev/input/event2", O_WRONLY);
     if (fd < 0) { perror("open"); return 1; }
     raw = getenv("TOUCH_RAW") != NULL;
     if (argc == 4 && !strcmp(argv[1], "tap")) {
         int x = atoi(argv[2]), y = atoi(argv[3]);
-        down(x, y); usleep(80000); up();
+        stamp(); down(x, y); usleep(80000); up();
     } else if (argc == 6 && !strcmp(argv[1], "swipe")) {
         int x0 = atoi(argv[2]), y0 = atoi(argv[3]), x1 = atoi(argv[4]), y1 = atoi(argv[5]);
-        down(x0, y0);
+        stamp(); down(x0, y0);
         for (int i = 1; i <= 12; i++) { usleep(20000); move(x0 + (x1 - x0) * i / 12, y0 + (y1 - y0) * i / 12); }
         usleep(40000); up();
     } else {

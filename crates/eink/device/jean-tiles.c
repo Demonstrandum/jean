@@ -60,6 +60,13 @@ struct tile {
 };
 static struct tile tiles[NTILES];
 
+/* stage timing, for finding where a touch's latency goes: lines in the journal carry microsecond stamps */
+static long now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
 static void die(const char *what) {
     fprintf(stderr, "jean-tiles: %s (errno %d)\n", what, errno);
     exit(1);
@@ -180,6 +187,7 @@ static int pump_touch(int tile, int rfb) {
         if (ey < 0) ey = 0;
         uint8_t ev[6] = {5, (uint8_t)down, (uint8_t)(ex >> 8), (uint8_t)ex, (uint8_t)(ey >> 8), (uint8_t)ey};
         if (write_all(rfb, ev, sizeof ev)) return -1;
+        if (!down) fprintf(stderr, "jean-tiles: release sent to the server at %ld ms\n", now_ms());
     }
 }
 
@@ -231,6 +239,7 @@ static void session(int fd) {
         }
         if (read_all(fd, buf, 4) || buf[0] != 0) break;
         int rects = be16(buf + 2);
+        long t_frame = now_ms();
         for (int i = 0; i < rects; i++) {
             uint8_t h[12];
             if (read_all(fd, h, 12)) goto out;
@@ -260,13 +269,16 @@ static void session(int fd) {
                 }
             }
         }
+        int announced = 0;
         for (int i = 0; i < NTILES; i++) { /* announce only the tiles that changed, each with its own box */
             struct tile *t = &tiles[i];
             if (t->dx1 < 0) continue;
             tile_update(i, t->dx0, t->dy0, t->dx1 - t->dx0 + 1, t->dy1 - t->dy0 + 1);
+            announced++;
             t->dx0 = t->dy0 = 1 << 20;
             t->dx1 = t->dy1 = -1;
         }
+        if (rects > 40) fprintf(stderr, "jean-tiles: frame of %d rects arrived at %ld ms, %d tiles announced after %ld ms\n", rects, t_frame, announced, now_ms() - t_frame);
         if (request(fd, 1)) break;
     }
 out:

@@ -63,6 +63,9 @@ fn main() {
         let (browser, screen, last_slot) = (browser.clone(), screen.clone(), last_slot.clone());
         move |what: &str, query: String| {
             let started = std::time::Instant::now();
+            if std::env::var_os("EINK_DEBUG").is_some() {
+                eprintln!("eink-serve: gesture arrived at {} ms", eink::rfb::clock_ms());
+            }
             let mut b = browser.lock().unwrap();
             match b.evaluate(&query) {
                 Ok(serde_json::Value::String(name)) => {
@@ -76,6 +79,7 @@ fn main() {
                         Ok(f) => {
                             screen.show(f);
                             last_slot.store(slot_of(now_ms()), Ordering::Relaxed);
+                            eprintln!("eink-serve: shown at {} ms", eink::rfb::clock_ms());
                             eprintln!("eink-serve: {what}: frame ready {} ms after the gesture", started.elapsed().as_millis());
                         }
                         Err(e) => eprintln!("eink-serve: {e}"),
