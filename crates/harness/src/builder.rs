@@ -29,7 +29,7 @@ pub fn relative(text: &str) -> Result<PathBuf, String> {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().map_err(|e| format!("git: {e}"))?;
+    let out = Command::new("git").arg("-C").arg(dir).args(args).envs([("GIT_CONFIG_COUNT", "2"), ("GIT_CONFIG_KEY_0", "commit.gpgsign"), ("GIT_CONFIG_VALUE_0", "false"), ("GIT_CONFIG_KEY_1", "tag.gpgsign"), ("GIT_CONFIG_VALUE_1", "false")]).output().map_err(|e| format!("git: {e}"))?;
     if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
