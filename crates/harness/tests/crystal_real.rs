@@ -7,6 +7,9 @@ use harness::crystal::{compare, scratch_store, Difference, Frames, ScratchDispla
 use store::{Meta, Store};
 
 fn chrome() -> Option<PathBuf> {
+    if std::env::var_os("JEAN_NO_BROWSER").is_some() {
+        return None;
+    }
     ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]
         .iter()
         .map(PathBuf::from)

@@ -17,7 +17,12 @@ pub struct Browser {
 }
 
 /// Where Chrome or Chromium usually is.
+/// A browser to drive, unless there is to be none: `JEAN_NO_BROWSER=1` says so (the sandbox the builder's checks run in cannot host Chrome, which needs its own
+/// sandbox and system services there; the canary, outside it, runs the browser tests).
 pub fn find_chrome() -> Option<PathBuf> {
+    if std::env::var_os("JEAN_NO_BROWSER").is_some() {
+        return None;
+    }
     ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/run/current-system/sw/bin/chromium"]
         .iter()
         .map(PathBuf::from)

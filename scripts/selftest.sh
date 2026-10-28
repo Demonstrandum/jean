@@ -4,6 +4,7 @@
 # Exit codes: 0 = every screen fits, 1 = something does not, 2 = no Chrome/Chromium (skipped). `cargo test` runs this.
 # usage: scripts/selftest.sh [port]      (a free port by default; set CHROME to a Chrome/Chromium binary if it is not found)
 set -eu
+[ -z "${JEAN_NO_BROWSER:-}" ] || { echo "selftest: JEAN_NO_BROWSER is set; skipped" >&2; exit 2; }
 cd "$(dirname "$0")/.."
 PORT="${1:-$(python3 -c "import socket; s = socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1])")}"
 CHROME="${CHROME:-}"

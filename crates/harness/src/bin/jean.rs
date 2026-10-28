@@ -82,7 +82,8 @@ fn main() {
         let audit = Audit::open(data.join("audit.jsonl"));
         let backend = Backend::detect().expect("no sandbox (sandbox-exec or bwrap) on this machine");
         let live = CommandLive { display: &display, restart: env("JEAN_RESTART", "").split_whitespace().map(String::from).collect() };
-        let checks = Checks(vec![vec!["cargo".into(), "test".into(), "--offline".into(), "-q".into()]]);
+        // the sandbox cannot host a browser: the unit tests run here (JEAN_NO_BROWSER skips the browser ones), the browser verification is the canary's job
+        let checks = Checks(vec![vec!["env".into(), "JEAN_NO_BROWSER=1".into(), "cargo".into(), "test".into(), "--offline".into(), "-q".into()]]);
         let pipeline = Pipeline { live_repo: repo, audit: &audit, backend, checks, canary: &ScriptCanary, live: &live, probes: 6, probe_every: Duration::from_secs(10), sleep: &std::thread::sleep };
         let w = Worker { llm: llm.as_ref(), model: env("JEAN_BUILDER_MODEL", "claude-opus-5-5"), tasks: &tasks, audit: &audit, repo, scratch: data.join("trees"), display: &display, backend, pipeline: &pipeline, approval };
         f(&w);
