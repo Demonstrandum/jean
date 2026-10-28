@@ -1,8 +1,9 @@
 //! Show the display on a panel over VNC: hold the display page open in headless Chrome, and about every second screenshot it, dither it,
 //! and publish it when it has changed.
-//! `--calm-ms N` holds small changes (the seconds, a percentage) to the clock-aligned beat of N ms, for a panel that cannot take a repaint every second;
-//! a touch or any big change always goes out at once. The default, 0, sends every change as it comes.
-//!   eink-serve [--calm-ms 0] [--display http://127.0.0.1:8788] [--listen 0.0.0.0:5900] [--panel native|rm2|rm2-portrait|rm2-turned-cw|rm2-turned-ccw] [--every-ms 1000] [--chrome PATH] [--dump out.png]
+//! Behind AppLoad as one big framebuffer the reMarkable re-drives its whole window on every update, however small, so a tick flashes everything: that is
+//! why the tablet runs the tile app (crates/eink/device/tiles), where a tick dirties one small item. For a viewer that cannot be local, `--calm-ms N` holds
+//! small changes to the clock-aligned slot of N ms and `--no-seconds` drops the seconds glyph; a touch or any big change always goes out at once.
+//!   eink-serve [--calm-ms 0] [--no-seconds] [--display http://127.0.0.1:8788] [--listen 0.0.0.0:5900] [--panel native|rm2|rm2-portrait|rm2-turned-cw|rm2-turned-ccw] [--every-ms 1000] [--chrome PATH] [--dump out.png]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -19,7 +20,8 @@ const SMALL_CHANGE: usize = 12_000;
 fn main() {
     let mut a = std::env::args().skip(1);
     let mut dump: Option<String> = None;
-    let mut calm_ms: u64 = 0; // with a number, small changes wait for the next slot of this length on the wall clock; 0 (the default) sends everything as it comes
+    let mut calm_ms: u64 = 0;      // with a number, small changes wait for the next slot of this length on the wall clock; 0 (the default) sends everything as it comes
+    let mut seconds = true;        // the seconds glyph ticks every second (local on the tablet, with the tile app)
     let (mut display, mut listen, mut panel, mut every, mut chrome) = ("http://127.0.0.1:8788".to_string(), "0.0.0.0:5900".to_string(), Panel::Remarkable2Landscape, 1000u64, find_chrome());
     while let Some(flag) = a.next() {
         let mut val = || a.next().unwrap_or_else(|| panic!("{flag} needs a value"));
@@ -29,6 +31,7 @@ fn main() {
             "--every-ms" => every = val().parse().expect("a number"),
             "--dump" => dump = Some(val()),
             "--calm-ms" => calm_ms = val().parse().expect("a number"),
+            "--no-seconds" => seconds = false,
             "--chrome" => chrome = Some(val().into()),
             "--panel" => {
                 panel = match val().as_str() {
@@ -44,7 +47,7 @@ fn main() {
         }
     }
     let chrome = chrome.expect("no Chrome found; pass --chrome");
-    let browser = Arc::new(Mutex::new(Browser::open(&chrome, &panel.page(&display), panel.scene(), panel.scale()).expect("cannot open the display page")));
+    let browser = Arc::new(Mutex::new(Browser::open(&chrome, &format!("{}{}", panel.page(&display), if seconds { "" } else { "&seconds=off" }), panel.scene(), panel.scale()).expect("cannot open the display page")));
     std::thread::sleep(Duration::from_secs(2));
     let first = capture(&mut browser.lock().unwrap(), panel).expect("first screenshot");
     if let Some(path) = &dump {

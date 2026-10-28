@@ -2,5 +2,10 @@
   "name": "Jean",
   "application": "jean-view",
   "qtfb": true,
-  "environment": { "JEAN_HOST": "10.11.99.8", "JEAN_PORT": "5911" }
+  "environment": {
+    "JEAN_HOST": "10.11.99.8",
+    "JEAN_PORT": "5911"
+  },
+  "disablesWindowedMode": true,
+  "aspectRatio": "original"
 }

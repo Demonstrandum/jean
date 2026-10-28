@@ -1,0 +1,9 @@
+{
+    "name": "Jean (tiles)",
+    "loadsBackend": true,
+    "entry": "/ui/main.qml",
+    "id": "jean-tiles",
+    "supportsScaling": false,
+    "canHaveMultipleFrontends": false,
+    "aspectRatio": "original"
+}

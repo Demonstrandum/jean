@@ -1822,6 +1822,8 @@ function drawFrame(): void {
  */
 function frame(opt: boolean | { title?: string; sheet?: string; tl?: SigList; tr?: SigList; tabs?: boolean; clock?: boolean; seconds?: boolean } = true): void {
   frameOpts = opt === false ? null : typeof opt === "object" ? opt : {};
+  // ?seconds=off: a view that cannot take a repaint every second (the e-ink panel behind AppLoad re-drives its whole window) drops the seconds glyph
+  if (frameOpts?.seconds && new URLSearchParams(location.search).get("seconds") === "off") frameOpts = { ...frameOpts, seconds: false };
   root.style.paddingBottom = frameOpts?.tabs ? "14px" : "";   // the tabs live in the top margin: the sheet gets the bottom one back
   if (frameOpts?.seconds) every("ui.frame.seconds", Tier.Tick, drawFrame); else stop("ui.frame.seconds");   // the seconds move every second
   drawFrame();

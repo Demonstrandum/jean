@@ -1,6 +1,8 @@
 /* touch: put a finger on the reMarkable 2's touchscreen from the shell, to drive the UI for testing.
- *   touch tap X Y            a tap at X,Y (the panel's own coordinates, 0..1403 across, 0..1871 down: the portrait framebuffer's)
+ *   touch tap X Y            a tap at X,Y
  *   touch swipe X0 Y0 X1 Y1  a drag from one point to another
+ * X,Y are screen pixels (0..1403 across, 0..1871 down, the portrait framebuffer's). The panel itself reports y upside down, so a raw event is written with
+ * y flipped; set TOUCH_RAW=1 to give raw panel coordinates instead.
  * Events are written to the evdev node, which the kernel passes on to whoever reads it (Qt in xochitl) as if the panel had sent them. */
 #include <fcntl.h>
 #include <stdint.h>
@@ -21,7 +23,8 @@ struct ev { uint32_t sec, usec; uint16_t type, code; int32_t value; }; /* the 32
 #define ABS_MT_POSITION_Y 0x36
 #define ABS_MT_TRACKING_ID 0x39
 
-static int fd;
+static int fd, raw;
+#define FLIP(y) (raw ? (y) : 1871 - (y))
 
 static void put(uint16_t type, uint16_t code, int32_t value) {
     struct ev e = {0, 0, type, code, value};
@@ -32,14 +35,14 @@ static void down(int x, int y) {
     put(EV_ABS, ABS_MT_SLOT, 0);
     put(EV_ABS, ABS_MT_TRACKING_ID, 1000 + (getpid() & 0xff));
     put(EV_ABS, ABS_MT_POSITION_X, x);
-    put(EV_ABS, ABS_MT_POSITION_Y, y);
+    put(EV_ABS, ABS_MT_POSITION_Y, FLIP(y));
     put(EV_KEY, BTN_TOUCH, 1);
     put(EV_SYN, SYN_REPORT, 0);
 }
 
 static void move(int x, int y) {
     put(EV_ABS, ABS_MT_POSITION_X, x);
-    put(EV_ABS, ABS_MT_POSITION_Y, y);
+    put(EV_ABS, ABS_MT_POSITION_Y, FLIP(y));
     put(EV_SYN, SYN_REPORT, 0);
 }
 
@@ -52,6 +55,7 @@ static void up(void) {
 int main(int argc, char **argv) {
     fd = open(getenv("TOUCH_DEV") ? getenv("TOUCH_DEV") : "/dev/input/event2", O_WRONLY);
     if (fd < 0) { perror("open"); return 1; }
+    raw = getenv("TOUCH_RAW") != NULL;
     if (argc == 4 && !strcmp(argv[1], "tap")) {
         int x = atoi(argv[2]), y = atoi(argv[3]);
         down(x, y); usleep(80000); up();
