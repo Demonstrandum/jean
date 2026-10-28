@@ -36,7 +36,7 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 ## Not yet done or not verified
 
 - Voice with a real microphone: the rest of the voice path (voice-activity detection, wake phrase, whisper.cpp, the agent, Piper) runs for real under `scripts/emulate-voice.sh`; only the microphone and speaker hardware (sox's `rec` and a player) are stood in for, so those two adapters are the untested part.
-- The NixOS configuration evaluates (with the assistant and panel on), but it has not been built or booted: there is no Linux builder here, so the VM and the `checks.vm` test have not run.
+- The NixOS configuration is built and booted under QEMU (below) with the display server, the panel server and the kiosk; the assistant's services (whisper, `jean`: they need a microphone, models and an API key) are not part of the VM, and the x86_64 `checks.vm` NixOS test has not run (it needs KVM).
 - The reMarkable: it shows the display and the touch relay is tested end to end up to the tablet's log (see below). Whether the panel still flashes the gradients on each tick, whether touches feel immediate on the glass, and the effect of `JEAN_REFRESH` have been judged by eye only by the owner, not measured.
 - Home Assistant: run against an emulator (`scripts/ha-emulator.py`, driven end to end by `scripts/emulate-home.sh`); not against a real instance, so its real-world quirks (long-lived token scopes, entity renames) are untested.
 - The builder promoting a change automatically (`JEAN_APPROVAL=auto`) has only run against fakes; the live test stops at "needs approval".
@@ -49,6 +49,20 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 A real run: the request "Set a timer for 10 minutes for the tea" went `Listening, heard, hear✓ set_timer✓, Speaking "Ten minute timer for the tea is set.", Idle`, the remark with no wake phrase was ignored, and "What is the weather like?" answered from the display's live weather; Piper's replies transcribe back word for word.
 
 It found a real weakness: whisper's base model sometimes hears the wake phrase badly ("Eclord, what is the weather like?"), and a request then went unanswered. Two fixes: whisper gets the wake phrases as its initial prompt, and the wake matcher accepts a name with the same consonant skeleton ("Eclord", "cloud", "clawed", "clod" for "Claude") when something vouches for it (the greeting before it matched exactly, or it is a longish word that begins the utterance), so that "The cold wind" and "Hey John" wake nothing.
+
+## The NixOS kiosk on QEMU
+
+There is no Linux builder on a Mac, so `scripts/build-vm.sh` builds in a `nixos/nix` container (Docker; the Nix store lives in the `jean-nix-store` volume, so a rebuild is quick). The flake's `packages.aarch64-linux.vm-boot` is a *netboot* system, not a disk image: a kernel, an initrd that carries the whole system as a squashfs, and the kernel command line. That needs no VM at build time (a disk image would, and Docker on Apple Silicon has no nested virtualization), and QEMU boots it directly. It has the display server, the panel server (`eink-serve`, headless Chromium, `rm2-turned-ccw`) and the kiosk (cage with a fullscreen Chromium) from `nix/module.nix`.
+
+`scripts/run-vm.sh` boots it with `qemu-system-aarch64 -M virt -accel hvf` (Hypervisor.framework, so it is fast: a console in about 40 s, services up in about 60), a virtio GPU, the serial console on a socket and a QEMU monitor. `scripts/vm-sh.py 'cmd'` runs a command in the guest through that serial socket (the netboot image logs in a `nixos` user with sudo), and `screendump` on the monitor gives a picture of the kiosk's screen.
+
+Verified in the VM: the whole package built for Linux (display server, assistant and panel server compiled from this repository); `display-server`, `eink-serve` and `cage-tty1` active; the display server applied and replayed all eight shipped screens; `eink-serve` reported `1404x1872 on vnc://0.0.0.0:5900` (its headless Chromium works on Linux); and the kiosk's screendump shows the real display page full screen. The display server binds loopback only and the panel port is behind the NixOS firewall (`services.display.panel.openFirewall`), so from the host these are checked from inside the guest.
+
+## The builder and the promotion pipeline, for real
+
+`scripts/emulate-promotion.sh` queues a task on a scratch copy of the project (its own git history is the "live" repository), runs the harness with a real model as the builder and approval set to automatic, and samples what the Claude tile is told: it turns black with the task title (`state=4`) and narrates each tool call (`read_file✓ look_up✓ run✓ selftest✓ write_file✓ finish✓`), then returns to idle. Then the pipeline runs: the protected-path gate, `cargo test --offline -q` in the sandbox, the canary self-test, the fast-forward swap, the watchdog probes.
+
+It found real faults that the fakes could not: the sandbox gave commands no writable temp directory, so `rustc` failed with `Operation not permitted` and every check failed on macOS (each command now gets a private `TMPDIR`, removed afterwards); the project's own tests start servers on `127.0.0.1`, which the closed network refused (a loopback-only policy is now used for the checks, and a sandboxed command still cannot reach anything else); and a model that ends its turn with a sentence instead of calling `finish` lost its finished work (the worker now nudges it twice to finish or carry on).
 
 ## The house on emulators
 

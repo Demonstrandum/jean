@@ -16,7 +16,7 @@ git -C "$WORK/live" config user.email jean@example.invalid; git -C "$WORK/live" 
 git -C "$WORK/live" add -A >/dev/null; git -C "$WORK/live" commit -qm "scratch copy" 2>/dev/null || true
 cargo build -q -p preview -p harness --manifest-path "$ROOT/Cargo.toml"
 "$ROOT/target/debug/preview" 127.0.0.1:$PORT "$WORK/store" "$WORK/live" >/dev/null 2>&1 & DISPLAY_PID=$!
-trap 'kill $DISPLAY_PID $CHROME_PID $MON_PID $JEAN_PID 2>/dev/null || true' EXIT
+trap 'kill $DISPLAY_PID $CHROME_PID $MON_PID $JEAN_PID 2>/dev/null || true; pkill -f "user-data-dir=$WORK" 2>/dev/null || true; pkill -f "sleep $((WAIT + 60))" 2>/dev/null || true' EXIT
 until curl -sf "http://127.0.0.1:$PORT/status" >/dev/null && ! curl -s "http://127.0.0.1:$PORT/" | grep -q "Soft alerts"; do sleep 0.5; done
 "$CHROME" --headless=new --disable-gpu --no-sandbox --window-size=1000,800 --user-data-dir="$WORK/chrome" "http://127.0.0.1:$PORT/live?panel&size=800x600" >/dev/null 2>&1 & CHROME_PID=$!
 until curl -s "http://127.0.0.1:$PORT/status" | grep -q '"connected":true'; do sleep 0.5; done
@@ -40,7 +40,9 @@ while True:
     time.sleep(1)
 PY
 MON_PID=$!
-( sleep $((WAIT + 60)) | JEAN_LLM=cli JEAN_CLI_MODEL=${JEAN_CLI_MODEL:-claude-sonnet-5-5} JEAN_BUILDER_MODEL= JEAN_REPO="$WORK/live" JEAN_APPROVAL=auto JEAN_DATA="$WORK/state" JEAN_DISPLAY="http://127.0.0.1:$PORT" "$ROOT/target/debug/jean" > "$WORK/jean.log" 2>&1 ) & JEAN_PID=$!
+# (text mode reads stdin: a `sleep` keeps it open while the builder thread works; $! is jean itself, the last process of the pipeline)
+sleep $((WAIT + 60)) | JEAN_LLM=cli JEAN_CLI_MODEL=${JEAN_CLI_MODEL:-claude-sonnet-5-5} JEAN_BUILDER_MODEL= JEAN_REPO="$WORK/live" JEAN_APPROVAL=auto JEAN_DATA="$WORK/state" JEAN_DISPLAY="http://127.0.0.1:$PORT" "$ROOT/target/debug/jean" > "$WORK/jean.log" 2>&1 &
+JEAN_PID=$!
 echo "the builder is working (this takes minutes); log: $WORK/jean.log"
 i=0
 while [ $i -lt $WAIT ]; do
