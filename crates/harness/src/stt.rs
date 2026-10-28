@@ -12,6 +12,8 @@ pub struct WhisperCli {
     pub bin: String,
     pub model: String,
     pub language: String,
+    /// What the recogniser is told to expect (the wake phrases): it hears a name it was just given far more reliably.
+    pub prompt: Option<String>,
 }
 
 impl Stt for WhisperCli {
@@ -20,6 +22,7 @@ impl Stt for WhisperCli {
             .args(["-m", &self.model, "-f"])
             .arg(wav)
             .args(["-nt", "-np", "-l", &self.language])
+            .args(self.prompt.iter().flat_map(|p| ["--prompt", p.as_str()]))
             .output()
             .map_err(|e| format!("cannot run {}: {e}", self.bin))?;
         if !out.status.success() {
@@ -107,9 +110,9 @@ mod tests {
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         let wav = dir.join("a.wav");
         std::fs::write(&wav, b"RIFF").unwrap();
-        let stt = WhisperCli { bin: bin.to_string_lossy().into(), model: "m.bin".into(), language: "en".into() };
+        let stt = WhisperCli { bin: bin.to_string_lossy().into(), model: "m.bin".into(), language: "en".into(), prompt: None };
         assert_eq!(stt.transcribe(&wav).unwrap(), "Hey Claude, set a timer for ten minutes.");
-        let missing = WhisperCli { bin: "/nonexistent/whisper".into(), model: "m".into(), language: "en".into() };
+        let missing = WhisperCli { bin: "/nonexistent/whisper".into(), model: "m".into(), language: "en".into(), prompt: None };
         assert!(missing.transcribe(&wav).is_err());
         let txt = dir.join("t.txt");
         std::fs::write(&txt, "typed words\n").unwrap();

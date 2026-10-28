@@ -35,12 +35,20 @@ NixOS: `services.display = { enable = true; agent = {...}; panel.enable = true; 
 
 ## Not yet done or not verified
 
-- Voice with a real microphone, whisper.cpp and Piper: the code and adapters are tested with fakes; no whisper or Piper is installed on this machine.
+- Voice with a real microphone: the rest of the voice path (voice-activity detection, wake phrase, whisper.cpp, the agent, Piper) runs for real under `scripts/emulate-voice.sh`; only the microphone and speaker hardware (sox's `rec` and a player) are stood in for, so those two adapters are the untested part.
 - The NixOS configuration evaluates (with the assistant and panel on), but it has not been built or booted: there is no Linux builder here, so the VM and the `checks.vm` test have not run.
 - The reMarkable: it shows the display and the touch relay is tested end to end up to the tablet's log (see below). Whether the panel still flashes the gradients on each tick, whether touches feel immediate on the glass, and the effect of `JEAN_REFRESH` have been judged by eye only by the owner, not measured.
 - Home Assistant: the translation is tested; no instance was reachable.
 - The builder promoting a change automatically (`JEAN_APPROVAL=auto`) has only run against fakes; the live test stops at "needs approval".
 - Sensors beyond Home Assistant (GPIO, I²C) are not written.
+
+## The voice path on emulators
+
+`scripts/emulate-voice.sh` runs the whole path without a microphone or a speaker. Piper speaks three utterances into a track (a request, a remark not meant for the assistant, a request); a fake `rec` (`scripts/fake-rec.py`, first in `PATH`) streams the track to the harness at real-time pace as raw PCM, so the harness's own voice-activity detector, wake phrase, whisper.cpp, the agent (the logged-in `claude`) and Piper all run unmodified; a fake player keeps the replies as WAV files, which are transcribed back. The display is a scratch one on a free port with a headless Chrome page, and a monitor prints what the Claude tile is told as it happens. Needs: `brew install whisper-cpp`, the `ggml-base.en.bin` model, `pip install piper-tts` in a venv, a Piper voice (all under `~/.local/share/jean`).
+
+A real run: the request "Set a timer for 10 minutes for the tea" went `Listening, heard, hear✓ set_timer✓, Speaking "Ten minute timer for the tea is set.", Idle`, the remark with no wake phrase was ignored, and "What is the weather like?" answered from the display's live weather; Piper's replies transcribe back word for word.
+
+It found a real weakness: whisper's base model sometimes hears the wake phrase badly ("Eclord, what is the weather like?"), and a request then went unanswered. Two fixes: whisper gets the wake phrases as its initial prompt, and the wake matcher accepts a name with the same consonant skeleton ("Eclord", "cloud", "clawed", "clod" for "Claude") when something vouches for it (the greeting before it matched exactly, or it is a longish word that begins the utterance), so that "The cold wind" and "Hey John" wake nothing.
 
 ## The assistant driving the display (the live REPL)
 

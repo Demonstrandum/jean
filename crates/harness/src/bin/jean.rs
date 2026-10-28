@@ -4,7 +4,7 @@
 //!   JEAN_MODE           `text` (read lines from stdin, print answers) or `voice` (microphone, whisper, speaker)
 //!   JEAN_MODEL          the voice agent's model (default claude-haiku-5-5)
 //!   JEAN_TZ, JEAN_PLACE timezone (default Europe/London) and place name
-//!   JEAN_WAKE           wake phrases, comma separated (default "hey claude,hey jean"); empty = everything is for it
+//!   JEAN_WAKE           wake phrases, comma separated (default "hey claude,hey jean,claude"; a name whisper hears badly, like "Eclord", still wakes it); empty = everything is for it
 //!   JEAN_REPO           the project checkout the builder changes (enables the builder); JEAN_BUILDER_MODEL, JEAN_APPROVAL (auto|person), JEAN_RESTART (command run after a promotion)
 //!   JEAN_DATA           state directory (default ./harness-state)
 //!   JEAN_WHISPER_BIN, JEAN_WHISPER_MODEL, JEAN_WHISPER_URL   whisper.cpp CLI or server
@@ -30,6 +30,12 @@ fn env(k: &str, default: &str) -> String {
     std::env::var(k).unwrap_or_else(|_| default.to_string())
 }
 
+/// The wake phrases as a sentence for whisper's initial prompt ("Hey Claude, hey Jean."): a name it has just been told is heard far more reliably.
+fn wake_prompt() -> Option<String> {
+    let phrases: Vec<String> = env("JEAN_WAKE", "hey claude,hey jean,claude").split(',').map(|p| p.trim()).filter(|p| !p.is_empty()).map(|p| { let mut c = p.chars(); c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default() }).collect();
+    (!phrases.is_empty()).then(|| phrases.join(", ") + ".")
+}
+
 fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
@@ -52,7 +58,7 @@ fn main() {
     let stt: Box<dyn Stt> = if !env("JEAN_WHISPER_URL", "").is_empty() {
         Box::new(AutoStt(WhisperServer { url: env("JEAN_WHISPER_URL", "") }))
     } else {
-        Box::new(AutoStt(WhisperCli { bin: env("JEAN_WHISPER_BIN", "whisper-cli"), model: env("JEAN_WHISPER_MODEL", "models/ggml-base.en.bin"), language: "en".into() }))
+        Box::new(AutoStt(WhisperCli { bin: env("JEAN_WHISPER_BIN", "whisper-cli"), model: env("JEAN_WHISPER_MODEL", "models/ggml-base.en.bin"), language: "en".into(), prompt: wake_prompt() }))
     };
     let speaker: Box<dyn Speaker> = match env("JEAN_TTS", if voice { "say" } else { "print" }).as_str() {
         "say" => Box::new(MacSay { voice: None }),
@@ -66,7 +72,7 @@ fn main() {
         _ => Box::new(Print),
     };
     let ears: Box<dyn Ears> = if voice { Box::new(SoxEars::new(data.join("heard"))) } else { Box::new(TextEars::new(data.join("heard"))) };
-    let wake: Vec<String> = env("JEAN_WAKE", if voice { "hey claude,hey jean" } else { "" }).split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    let wake: Vec<String> = env("JEAN_WAKE", if voice { "hey claude,hey jean,claude" } else { "" }).split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
 
     let repo = std::env::var("JEAN_REPO").ok().map(std::path::PathBuf::from);
     let approval = if env("JEAN_APPROVAL", "person") == "auto" { Approval::Auto } else { Approval::Person };
