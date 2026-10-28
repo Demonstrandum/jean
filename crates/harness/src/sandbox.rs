@@ -41,8 +41,12 @@ pub enum Backend {
 }
 
 impl Backend {
-    /// The mechanism this machine has, if any. There is no unconfined fallback.
+    /// The mechanism this machine has, if any. There is no unconfined fallback. Inside a confined command (`JEAN_IN_SANDBOX` is set for those) there is none:
+    /// confinement does not nest, so a project's own tests that use the sandbox skip themselves there, as they do on a machine without one.
     pub fn detect() -> Option<Backend> {
+        if std::env::var_os("JEAN_IN_SANDBOX").is_some() {
+            return None;
+        }
         let has = |bin: &str| Command::new("sh").args(["-c", &format!("command -v {bin}")]).stdout(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
         if cfg!(target_os = "macos") && has("sandbox-exec") {
             Some(Backend::SandboxExec)
@@ -112,7 +116,7 @@ fn run_confined(backend: Backend, policy: &Policy, tmp: &Path, argv: &[&str]) ->
             c
         }
     };
-    let mut child = cmd.current_dir(&policy.workdir).env("TMPDIR", canonical(tmp)).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("cannot start the sandbox: {e}"))?;
+    let mut child = cmd.current_dir(&policy.workdir).env("TMPDIR", canonical(tmp)).env("JEAN_IN_SANDBOX", "1").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("cannot start the sandbox: {e}"))?;
     let out = child.stdout.take().unwrap();
     let err = child.stderr.take().unwrap();
     let read = |mut r: Box<dyn std::io::Read + Send>| std::thread::spawn(move || { let mut s = String::new(); let _ = r.read_to_string(&mut s); s });
@@ -196,6 +200,15 @@ mod tests {
         let tmpdir = r.stdout.trim().to_string();
         assert!(tmpdir.contains("jean-sandbox-"), "{tmpdir}");
         assert!(!Path::new(&tmpdir).exists(), "the private temp dir is removed after the command");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_confined_command_knows_it_is_confined_and_finds_no_sandbox_to_nest() {
+        let Some(b) = backend() else { return };
+        let d = work("nest");
+        let r = run(b, &policy(&d), &["sh", "-c", "echo $JEAN_IN_SANDBOX"]).unwrap();
+        assert_eq!(r.stdout.trim(), "1", "{r:?}");
         let _ = std::fs::remove_dir_all(d);
     }
 
