@@ -13,6 +13,9 @@ pub struct Policy {
     /// Further writable directories (a scratch dir, a build cache).
     pub writable: Vec<PathBuf>,
     pub network: bool,
+    /// Connections to this machine only (127.0.0.1): a project's tests start servers and talk to them. Implied by `network`; on Linux the unshared network
+    /// namespace has its own loopback either way.
+    pub loopback: bool,
     pub timeout: Duration,
 }
 
@@ -63,6 +66,8 @@ pub fn seatbelt_profile(p: &Policy) -> String {
     }
     if p.network {
         s.push_str("(allow network*)\n");
+    } else if p.loopback {
+        s.push_str("(allow network-bind (local ip \"localhost:*\"))\n(allow network-inbound (local ip \"localhost:*\"))\n(allow network-outbound (remote ip \"localhost:*\"))\n");
     }
     s
 }
@@ -138,7 +143,7 @@ mod tests {
     }
 
     fn policy(d: &Path) -> Policy {
-        Policy { workdir: d.to_path_buf(), writable: vec![], network: false, timeout: Duration::from_secs(10) }
+        Policy { workdir: d.to_path_buf(), writable: vec![], network: false, loopback: false, timeout: Duration::from_secs(10) }
     }
 
     #[test]
@@ -206,6 +211,21 @@ mod tests {
         let mut open = policy(&d);
         open.network = true;
         assert!(run(b, &open, &["bash", "-c", &probe]).unwrap().ok());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn loopback_can_be_opened_without_opening_the_network() {
+        let Some(b) = backend() else { return };
+        let d = work("loop");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut p = policy(&d);
+        p.loopback = true;
+        assert!(run(b, &p, &["bash", "-c", &format!("exec 3<>/dev/tcp/127.0.0.1/{port}")]).unwrap().ok(), "this machine is reachable");
+        // 192.0.2.1 is TEST-NET-1: not this machine, so the sandbox must refuse it (on Linux the unshared namespace has nowhere to send it)
+        let r = run(b, &p, &["bash", "-c", "exec 3<>/dev/tcp/192.0.2.1/9"]).unwrap();
+        assert!(!r.ok(), "the outside is still closed: {r:?}");
         let _ = std::fs::remove_dir_all(d);
     }
 

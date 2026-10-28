@@ -107,7 +107,7 @@ pub fn parse(backend: Backend, m: &Manifest, dir: &Path, page: &Path) -> Result<
     let mut argv: Vec<String> = m.parse.clone();
     argv.push(page.display().to_string());
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let policy = Policy { workdir: dir.to_path_buf(), writable: vec![], network: false, timeout: Duration::from_secs(30) };
+    let policy = Policy { workdir: dir.to_path_buf(), writable: vec![], network: false, loopback: false, timeout: Duration::from_secs(30) };
     let r = sandbox::run(backend, &policy, &argv)?;
     if !r.ok() {
         return Err(format!("the parser failed: {}", r.stderr.lines().last().unwrap_or("no message")));

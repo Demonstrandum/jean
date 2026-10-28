@@ -165,7 +165,7 @@ impl Tools for BuilderTools<'_> {
                     return Err("`argv` is empty".into());
                 }
                 let timeout = Duration::from_secs(input["timeout_s"].as_u64().unwrap_or(120).min(600));
-                let policy = Policy { workdir: self.tree.dir.clone(), writable: vec![], network: false, timeout };
+                let policy = Policy { workdir: self.tree.dir.clone(), writable: vec![], network: false, loopback: false, timeout };
                 let r = sandbox::run(self.backend, &policy, &argv)?;
                 let mut out = format!("exit {}{}\n{}", r.code.map_or("none".to_string(), |c| c.to_string()), if r.timed_out { " (timed out)" } else { "" }, r.stdout);
                 if !r.stderr.is_empty() {

@@ -68,7 +68,7 @@ impl Pipeline<'_> {
         }
         for argv in &self.checks.0 {
             let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
-            let policy = Policy { workdir: tree.dir.clone(), writable: vec![], network: false, timeout: Duration::from_secs(900) };
+            let policy = Policy { workdir: tree.dir.clone(), writable: vec![], network: false, loopback: true, timeout: Duration::from_secs(900) };
             let r = sandbox::run(self.backend, &policy, &argv)?;
             if !r.ok() {
                 let tail: String = r.stderr.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
