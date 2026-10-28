@@ -33,7 +33,7 @@ in
 
     panel = {
       enable = lib.mkEnableOption "serving the display to a panel over VNC (a reMarkable 2, or any viewer): headless Chromium, dithered";
-      geometry = lib.mkOption { type = lib.types.enum [ "native" "rm2" "rm2-portrait" ]; default = "rm2"; };
+      geometry = lib.mkOption { type = lib.types.enum [ "native" "rm2" "rm2-portrait" "rm2-turned-cw" "rm2-turned-ccw" ]; default = "rm2"; description = "The panel: its size and whether the landscape scene is turned for a portrait frame (the AppLoad tile app on a reMarkable 2 held in landscape wants rm2-turned-ccw)."; };
       port = lib.mkOption { type = lib.types.port; default = 5900; };
       openFirewall = lib.mkOption { type = lib.types.bool; default = false; description = "VNC here has no password: only on a network you trust."; };
     };

@@ -21,6 +21,9 @@ pub enum Approval {
     Person,
 }
 
+/// How many times a builder that stops without calling `finish` is asked to finish or carry on.
+const NUDGES: usize = 2;
+
 pub struct Worker<'a> {
     pub llm: &'a dyn Llm,
     pub model: String,
@@ -68,7 +71,17 @@ impl Worker<'_> {
         feed.publish();
         let agent = Agent { llm: self.llm, profile, watch: Some(&feed) };
         let mut tools = BuilderTools { tree: &tree, display: self.display, backend: self.backend, finished: Finished::default() };
-        let outcome = agent.run_turn(&mut tools, &mut vec![], &format!("{}\n\n{}", task.title, task.details));
+        // A model sometimes ends its turn with a closing sentence instead of calling `finish`: its work is not lost for that, it is asked to finish properly
+        // (or to carry on if it is not done), twice at most.
+        let mut history = vec![];
+        let mut outcome = agent.run_turn(&mut tools, &mut history, &format!("{}\n\n{}", task.title, task.details));
+        for _ in 0..NUDGES {
+            let stopped_early = matches!(&outcome, Ok(o) if !o.truncated) && tools.finished.0.is_none();
+            if !stopped_early {
+                break;
+            }
+            outcome = agent.run_turn(&mut tools, &mut history, "You stopped without calling finish. If the task is done, run the self-test and call finish with a summary of what you changed; if it is not done, carry on.");
+        }
         activity.borrow_mut().clear();
         feed.publish();
         let _ = self.display.show_work(None, now_ms);
@@ -231,11 +244,24 @@ mod tests {
 
     #[test]
     fn a_builder_that_never_finishes_fails_and_changes_nothing() {
-        rig("quit", Approval::Auto, vec![call("a", "write_file", json!({ "path": "x.ts", "content": "" })), say("I give up")], |w, repo, tasks, _| {
+        // it is asked twice to finish or carry on, and does not
+        rig("quit", Approval::Auto, vec![call("a", "write_file", json!({ "path": "x.ts", "content": "" })), say("I give up"), say("No, really"), say("Really")], |w, repo, tasks, _| {
             w.tasks.enqueue(1, "Something", "").unwrap();
             assert_eq!(w.run_next(10).unwrap(), Some((1, Status::Failed)));
             assert!(!repo.join("x.ts").exists());
             assert!(tasks.all().unwrap()[0].result.contains("without finishing"));
+        });
+    }
+
+    #[test]
+    fn a_builder_that_stops_with_a_sentence_is_asked_to_finish_and_its_work_is_kept() {
+        // the model writes the file and a closing sentence, no `finish`; it is nudged, calls it, and the change goes through
+        let script = vec![call("a", "write_file", json!({ "path": "crates/ui/seed/80-garden.ts", "content": "// garden\n" })), say("All done, the garden screen is added."), call("b", "finish", json!({ "summary": "added a garden screen" })), say("Finished.")];
+        rig("nudge", Approval::Person, script, |w, repo, tasks, _| {
+            w.tasks.enqueue(1, "Add a garden screen", "").unwrap();
+            assert_eq!(w.run_next(10).unwrap(), Some((1, Status::NeedsApproval)), "{}", tasks.all().unwrap()[0].result);
+            assert!(tasks.all().unwrap()[0].result.contains("builder/1"));
+            let _ = repo;
         });
     }
 

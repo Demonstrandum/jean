@@ -81,7 +81,20 @@ fn bwrap_args(p: &Policy) -> Vec<String> {
 }
 
 /// Run `argv` under the policy. The output is captured; a command still running at the timeout is killed.
+/// The command gets a private temporary directory (`TMPDIR`), writable under the policy and removed afterwards: compilers and test programs make temp files, and
+/// the system temp directory is, rightly, not writable from inside.
 pub fn run(backend: Backend, policy: &Policy, argv: &[&str]) -> Result<Ran, String> {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = std::env::temp_dir().join(format!("jean-sandbox-{}-{}", std::process::id(), COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("cannot make a temp dir: {e}"))?;
+    let mut with_tmp = policy.clone();
+    with_tmp.writable.push(tmp.clone());
+    let result = run_confined(backend, &with_tmp, &tmp, argv);
+    let _ = std::fs::remove_dir_all(&tmp);
+    result
+}
+
+fn run_confined(backend: Backend, policy: &Policy, tmp: &Path, argv: &[&str]) -> Result<Ran, String> {
     let mut cmd = match backend {
         Backend::SandboxExec => {
             let mut c = Command::new("sandbox-exec");
@@ -94,7 +107,7 @@ pub fn run(backend: Backend, policy: &Policy, argv: &[&str]) -> Result<Ran, Stri
             c
         }
     };
-    let mut child = cmd.current_dir(&policy.workdir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("cannot start the sandbox: {e}"))?;
+    let mut child = cmd.current_dir(&policy.workdir).env("TMPDIR", canonical(tmp)).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("cannot start the sandbox: {e}"))?;
     let out = child.stdout.take().unwrap();
     let err = child.stderr.take().unwrap();
     let read = |mut r: Box<dyn std::io::Read + Send>| std::thread::spawn(move || { let mut s = String::new(); let _ = r.read_to_string(&mut s); s });
@@ -165,6 +178,19 @@ mod tests {
         let home = std::env::var("HOME").unwrap_or_default();
         let r = run(b, &policy(&d), &["sh", "-c", &format!("echo no > {home}/sbx-home-probe")]).unwrap();
         assert!(!r.ok() && !Path::new(&format!("{home}/sbx-home-probe")).exists());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_command_has_a_private_temp_dir_of_its_own_and_it_is_cleaned_up() {
+        let Some(b) = backend() else { return };
+        let d = work("tmp");
+        // what a compiler does: make a temp file under $TMPDIR (the system temp dir is refused; macOS mktemp ignores $TMPDIR, rustc does not)
+        let r = run(b, &policy(&d), &["sh", "-c", "f=$(mktemp \"$TMPDIR/x.XXXXXX\") && echo ok > \"$f\" && echo $TMPDIR"]).unwrap();
+        assert!(r.ok(), "{r:?}");
+        let tmpdir = r.stdout.trim().to_string();
+        assert!(tmpdir.contains("jean-sandbox-"), "{tmpdir}");
+        assert!(!Path::new(&tmpdir).exists(), "the private temp dir is removed after the command");
         let _ = std::fs::remove_dir_all(d);
     }
 
